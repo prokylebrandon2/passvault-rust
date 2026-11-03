@@ -286,7 +286,7 @@ fn import_csv(text: &str) -> Result<Imported, Error> {
 }
 
 fn csv_field(s: &str) -> String {
-    if s.contains(|c: char| matches!(c, ',' | '"' | '\n' | '\r')) {
+    if s.contains([',', '"', '\n', '\r']) {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {
         s.to_string()

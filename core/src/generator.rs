@@ -112,8 +112,7 @@ mod tests {
 
     #[test]
     fn length_is_clamped_and_respected() {
-        let mut o = GenOptions::default();
-        o.length = 3;
+        let mut o = GenOptions { length: 3, ..GenOptions::default() };
         assert_eq!(generate(&o).chars().count(), MIN_LEN);
         o.length = 500;
         assert_eq!(generate(&o).chars().count(), MAX_LEN);
