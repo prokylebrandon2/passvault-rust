@@ -4,6 +4,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use zeroize::Zeroize;
 
 /// Holds the unlocked vault in memory and the path of the encrypted file. Locks itself after
 /// `idle` without activity. Key derivation is slow, so callers do it *outside* this struct and
@@ -115,6 +116,32 @@ impl Session {
         Ok(())
     }
 
+    /// Adds imported logins in one save. A login already in the vault (same title, username, website
+    /// and password) is skipped. Returns `(added, duplicates)`.
+    pub fn merge_entries(&mut self, incoming: Vec<Entry>) -> Result<(usize, usize), Error> {
+        self.check_idle();
+        let (bytes, added, dups) = {
+            let v = self.vault.as_mut().ok_or(Error::Locked)?;
+            let (mut added, mut dups) = (0usize, 0usize);
+            for mut e in incoming {
+                if v.entries.iter().any(|x| same_login(x, &e)) {
+                    e.zeroize();
+                    dups += 1;
+                } else {
+                    v.upsert(e);
+                    added += 1;
+                }
+            }
+            let bytes = if added > 0 { Some(v.seal()?) } else { None };
+            (bytes, added, dups)
+        };
+        if let Some(b) = bytes {
+            self.write(&b)?;
+        }
+        self.touch();
+        Ok((added, dups))
+    }
+
     /// Replaces the stored vault with a backup file (which stays encrypted).
     pub fn import(&mut self, bytes: &[u8]) -> Result<(), Error> {
         Vault::validate(bytes)?;
@@ -135,6 +162,13 @@ impl Session {
         fs::rename(&tmp, &path)?;
         Ok(())
     }
+}
+
+fn same_login(a: &Entry, b: &Entry) -> bool {
+    a.title.trim().eq_ignore_ascii_case(b.title.trim())
+        && a.username.trim().eq_ignore_ascii_case(b.username.trim())
+        && a.url.trim().eq_ignore_ascii_case(b.url.trim())
+        && a.password == b.password
 }
 
 #[cfg(test)]
@@ -202,5 +236,23 @@ mod tests {
         assert_eq!(b.import(b"hello").err(), Some(Error::NotAVault));
         b.import(&backup).unwrap();
         assert!(b.exists());
+    }
+
+    #[test]
+    fn merge_skips_duplicates_and_saves_once() {
+        let mut s = temp_session();
+        s.install(Vault::create("password1", None, FAST).unwrap(), true).unwrap();
+        s.upsert(entry("1")).unwrap();
+        let mut same = entry("other-id");
+        same.title = "SITE".into(); // case differs only
+        let mut fresh = entry("2");
+        fresh.title = "Fresh".into();
+        assert_eq!(s.merge_entries(vec![same, fresh]).unwrap(), (1, 1));
+        assert_eq!(s.entries().unwrap().len(), 2);
+        // what was merged is on disk
+        let bytes = s.read_file().unwrap();
+        assert_eq!(Vault::open(&bytes, "password1", None).unwrap().entries.len(), 2);
+        s.lock();
+        assert_eq!(s.merge_entries(vec![entry("3")]).err(), Some(Error::Locked));
     }
 }

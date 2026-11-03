@@ -11,6 +11,8 @@ pub enum Error {
     Crypto,
     Random,
     Io(String),
+    /// An import file that can't be read. The message says what to do about it.
+    Import(String),
 }
 
 impl fmt::Display for Error {
@@ -25,6 +27,7 @@ impl fmt::Display for Error {
             Error::Crypto => f.write_str("Encryption failed on this device."),
             Error::Random => f.write_str("Couldn't get secure random numbers from the system."),
             Error::Io(e) => write!(f, "Couldn't read or write the vault: {e}"),
+            Error::Import(m) => f.write_str(m),
         }
     }
 }

@@ -3,10 +3,10 @@
 
 use crate::bridge;
 use crate::state::{self, Event};
-use crate::{MainWindow, Row, Theme};
+use crate::{MainWindow, OtpRow, Row, Theme};
 use passvault_core::otp::{self, OtpParams};
-use passvault_core::{generate_password, new_id, random_bytes, Entry, Error, Kdf, Vault};
-use slint::{ComponentHandle, ModelRc, VecModel};
+use passvault_core::{generate, new_id, random_bytes, transfer, Entry, Error, GenOptions, Kdf, Settings, Vault};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -18,6 +18,9 @@ const KEY_PICK: i32 = 1;
 const KEY_CREATE: i32 = 2;
 const BACKUP_OUT: i32 = 3;
 const BACKUP_IN: i32 = 4;
+const IMPORT_IN: i32 = 5;
+const EXPORT_CSV: i32 = 6;
+const EXPORT_JSON: i32 = 7;
 
 #[derive(Default)]
 struct Ctl {
@@ -28,6 +31,16 @@ struct Ctl {
     editing: Option<String>,
     otp: Option<OtpParams>,
     ticks: u32,
+    /// App data directory (settings.json lives here).
+    dir: PathBuf,
+    settings: Settings,
+    /// Which screen the login form returns to: 1 (logins) or 3 (codes).
+    return_to: i32,
+    /// The logins that have a one-time password, in the order the Codes list shows them.
+    codes: Vec<(String, OtpParams)>,
+    code_model: Rc<VecModel<OtpRow>>,
+    /// The secret being typed on the Add authenticator screen.
+    auth_otp: Option<OtpParams>,
 }
 
 type Shared = Rc<RefCell<Ctl>>;
@@ -45,11 +58,15 @@ macro_rules! handler {
 }
 
 pub fn run(dir: PathBuf) {
-    state::session().set_dir(dir);
+    state::session().set_dir(dir.clone());
     let ui = MainWindow::new().expect("create the window");
     let ctl: Shared = Rc::new(RefCell::new(Ctl::default()));
     {
         let mut c = ctl.borrow_mut();
+        c.settings = Settings::load(&dir);
+        c.dir = dir;
+        apply_settings(&ui, &c.settings);
+        ui.set_otp_rows(ModelRc::from(c.code_model.clone()));
         c.creating = !state::session().exists();
         c.auth_mode = bridge::is_autofill_request();
         ui.set_creating(c.creating);
@@ -148,10 +165,7 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
     handler!(ui, ctl, on_back, |ui, c| {
         c.editing = None;
         c.otp = None;
-        clear_form(&ui);
-        ui.set_error("".into());
-        refresh_rows(&ui, &ui.get_query());
-        ui.set_screen(1);
+        leave_form(&ui, &mut c);
     });
     handler!(ui, ctl, on_save, |ui, c| {
         let entry = Entry {
@@ -168,10 +182,7 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
             Ok(()) => {
                 c.editing = None;
                 c.otp = None;
-                clear_form(&ui);
-                ui.set_error("".into());
-                refresh_rows(&ui, &ui.get_query());
-                ui.set_screen(1);
+                leave_form(&ui, &mut c);
             }
             Err(Error::Locked) => lock_ui(&ui, &mut c),
             Err(e) => ui.set_error(e.to_string().into()),
@@ -193,13 +204,11 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
             }
         }
         c.otp = None;
-        clear_form(&ui);
-        refresh_rows(&ui, &ui.get_query());
-        ui.set_screen(1);
+        leave_form(&ui, &mut c);
     });
 
-    handler!(ui, ctl, on_generate, |ui, _c| {
-        ui.set_f_password(generate_password(20).into());
+    handler!(ui, ctl, on_generate, |ui, c| {
+        ui.set_f_password(generate(&c.settings.generator).into());
         ui.set_show_password(true);
     });
     handler!(ui, ctl, on_copy_password, |ui, _c| {
@@ -216,6 +225,139 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
         ui.set_otp_invalid(!text.trim().is_empty() && parsed.is_none());
         c.otp = parsed;
     });
+
+    // ---- tabs ----
+    {
+        let (weak, shared) = (ui.as_weak(), ctl.clone());
+        ui.on_go(move |screen| {
+            let ui = weak.unwrap();
+            let mut c = shared.borrow_mut();
+            state::touch();
+            ui.set_error("".into());
+            ui.set_notice("".into());
+            ui.set_export_ask(0);
+            match screen {
+                1 => refresh_rows(&ui, &ui.get_query()),
+                3 => refresh_codes(&mut c),
+                4 => show_preview(&ui, &c.settings.generator),
+                _ => {}
+            }
+            ui.set_screen(screen);
+        });
+    }
+
+    // ---- codes and authenticators ----
+    {
+        let shared = ctl.clone();
+        ui.on_copy_code(move |id| {
+            state::touch();
+            let c = shared.borrow();
+            if let Some((_, p)) = c.codes.iter().find(|(i, _)| i.as_str() == id.as_str()) {
+                bridge::copy(&otp::code(p, now_secs()));
+            }
+        });
+    }
+    handler!(ui, ctl, on_new_authenticator, |ui, c| {
+        clear_auth(&ui, &mut c);
+        ui.set_error("".into());
+        ui.set_notice("".into());
+        ui.set_screen(6);
+    });
+    handler!(ui, ctl, on_auth_edited, |ui, c| {
+        let text = ui.get_a_secret();
+        let parsed = otp::parse(&text);
+        ui.set_a_invalid(!text.trim().is_empty() && parsed.is_none());
+        c.auth_otp = parsed;
+        show_auth(&ui, &c);
+    });
+    handler!(ui, ctl, on_back_codes, |ui, c| {
+        clear_auth(&ui, &mut c);
+        refresh_codes(&mut c);
+        ui.set_error("".into());
+        ui.set_screen(3);
+    });
+    handler!(ui, ctl, on_save_authenticator, |ui, c| {
+        let name = ui.get_a_name().trim().to_string();
+        let secret = ui.get_a_secret().trim().to_string();
+        if name.is_empty() || c.auth_otp.is_none() {
+            return;
+        }
+        let entry = Entry { id: new_id(), title: name, otp: secret, ..Default::default() };
+        let result = state::session().upsert(entry);
+        match result {
+            Ok(()) => {
+                clear_auth(&ui, &mut c);
+                refresh_codes(&mut c);
+                ui.set_error("".into());
+                ui.set_screen(3);
+            }
+            Err(Error::Locked) => lock_ui(&ui, &mut c),
+            Err(e) => ui.set_error(e.to_string().into()),
+        }
+    });
+
+    // ---- generator settings ----
+    handler!(ui, ctl, on_gen_changed, |ui, c| {
+        state::touch();
+        c.settings.generator = GenOptions {
+            length: ui.get_gen_length().max(0) as usize,
+            lower: ui.get_gen_lower(),
+            upper: ui.get_gen_upper(),
+            digits: ui.get_gen_digits(),
+            symbols: ui.get_gen_symbols(),
+            avoid_lookalikes: ui.get_gen_lookalikes(),
+        }
+        .normalized();
+        c.settings.auto_generate = ui.get_auto_generate();
+        // Writes the cleaned-up values back (for example when every set was switched off) and a fresh preview.
+        apply_settings(&ui, &c.settings);
+        if let Err(e) = c.settings.save(&c.dir) {
+            ui.set_error(e.to_string().into());
+        }
+    });
+    handler!(ui, ctl, on_gen_regenerate, |ui, c| {
+        state::touch();
+        show_preview(&ui, &c.settings.generator);
+    });
+    handler!(ui, ctl, on_gen_copy, |ui, _c| {
+        state::touch();
+        bridge::copy(&ui.get_gen_preview());
+        ui.set_notice("Copied. It is cleared from the clipboard after 30 seconds.".into());
+    });
+
+    // ---- Proton Pass import and export ----
+    handler!(ui, ctl, on_import_proton, |ui, _c| {
+        state::touch();
+        ui.set_error("".into());
+        ui.set_notice("".into());
+        bridge::pick_file(IMPORT_IN);
+    });
+    {
+        let weak = ui.as_weak();
+        ui.on_export_file(move |kind| {
+            let ui = weak.unwrap();
+            state::touch();
+            let list: Option<Vec<Entry>> = {
+                let mut s = state::session();
+                let copy: Option<Vec<Entry>> = s.entries().map(|e| e.to_vec());
+                copy
+            };
+            let Some(mut list) = list else { return };
+            let now = now_secs();
+            let (mut bytes, code, name) = if kind == 2 {
+                (transfer::export_json(&list, now).into_bytes(), EXPORT_JSON, "passvault-proton-pass.json")
+            } else {
+                (transfer::export_csv(&list, now).into_bytes(), EXPORT_CSV, "passvault-proton-pass.csv")
+            };
+            for e in list.iter_mut() {
+                e.zeroize();
+            }
+            ui.set_error("".into());
+            ui.set_notice("".into());
+            bridge::create_file(code, name, &bytes);
+            bytes.zeroize();
+        });
+    }
 }
 
 fn unlock_or_create(creating: bool, pw: &str, key_file: Option<&[u8]>) -> Result<(), Error> {
@@ -241,8 +383,11 @@ fn start_timer(timer: &slint::Timer, ui: &MainWindow, ctl: &Shared) {
         if ui.get_screen() != 0 && !state::session().is_unlocked() {
             lock_ui(&ui, &mut c);
         }
-        if ui.get_screen() == 2 {
-            show_otp(&ui, &c);
+        match ui.get_screen() {
+            2 => show_otp(&ui, &c),
+            3 => tick_codes(&c),
+            6 => show_auth(&ui, &c),
+            _ => {}
         }
         c.ticks = c.ticks.wrapping_add(1);
         if c.ticks % 8 == 0 {
@@ -300,6 +445,22 @@ fn handle_event(ui: &MainWindow, c: &mut Ctl, ev: Event) {
                 }
             }
             (BACKUP_IN, 2) => ui.set_error("Couldn't read that file.".into()),
+            (IMPORT_IN, 0) => {
+                if let Some(mut d) = data {
+                    let parsed = transfer::import(&d);
+                    d.zeroize();
+                    match parsed {
+                        Ok(imp) => finish_import(ui, c, imp),
+                        Err(e) => {
+                            ui.set_notice("".into());
+                            ui.set_error(e.to_string().into());
+                        }
+                    }
+                }
+            }
+            (IMPORT_IN, 2) => ui.set_error("Couldn't read that file.".into()),
+            (EXPORT_CSV | EXPORT_JSON, 0) => ui.set_notice("Exported. The file isn't encrypted: delete it once Proton Pass has imported it.".into()),
+            (EXPORT_CSV | EXPORT_JSON, 2) => ui.set_error("Couldn't save the file. Pick a different location.".into()),
             _ => {}
         },
     }
@@ -308,6 +469,10 @@ fn handle_event(ui: &MainWindow, c: &mut Ctl, ev: Event) {
 fn lock_ui(ui: &MainWindow, c: &mut Ctl) {
     c.editing = None;
     c.otp = None;
+    c.codes.clear();
+    c.code_model.set_vec(Vec::<OtpRow>::new());
+    clear_auth(ui, c);
+    ui.set_export_ask(0);
     c.key_file = None; // wiped on drop; restored from the remembered location below
     c.creating = false;
     clear_form(ui);
@@ -369,6 +534,14 @@ fn load_form(ui: &MainWindow, c: &mut Ctl, entry: Option<Entry>) {
     ui.set_error("".into());
     ui.set_notice("".into());
     c.otp = otp::parse(&e.otp);
+    if c.editing.is_none() && c.settings.auto_generate {
+        ui.set_f_password(generate(&c.settings.generator).into());
+        ui.set_show_password(true);
+    }
+    let from = ui.get_screen();
+    if from == 1 || from == 3 {
+        c.return_to = from;
+    }
     ui.set_screen(2);
 }
 
@@ -409,4 +582,134 @@ fn group(code: &str) -> String {
         .map(|c| String::from_utf8_lossy(c).into_owned())
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Closes the login form and returns to the list it was opened from.
+fn leave_form(ui: &MainWindow, c: &mut Ctl) {
+    clear_form(ui);
+    ui.set_error("".into());
+    refresh_rows(ui, &ui.get_query());
+    refresh_codes(c);
+    ui.set_screen(if c.return_to == 3 { 3 } else { 1 });
+}
+
+fn apply_settings(ui: &MainWindow, s: &Settings) {
+    let g = &s.generator;
+    ui.set_gen_length(g.length as i32);
+    ui.set_gen_lower(g.lower);
+    ui.set_gen_upper(g.upper);
+    ui.set_gen_digits(g.digits);
+    ui.set_gen_symbols(g.symbols);
+    ui.set_gen_lookalikes(g.avoid_lookalikes);
+    ui.set_auto_generate(s.auto_generate);
+    show_preview(ui, g);
+}
+
+fn show_preview(ui: &MainWindow, g: &GenOptions) {
+    ui.set_gen_preview(generate(g).into());
+    let bits = g.entropy_bits();
+    let label = if bits < 50.0 {
+        "weak"
+    } else if bits < 70.0 {
+        "fair"
+    } else if bits < 100.0 {
+        "strong"
+    } else {
+        "very strong"
+    };
+    ui.set_gen_strength(format!("About {bits:.0} bits of entropy, {label}").into());
+}
+
+fn code_row(id: &str, title: &str, user: &str, p: &OtpParams, now: u64) -> OtpRow {
+    let left = otp::seconds_left(p, now);
+    OtpRow {
+        id: id.into(),
+        title: title.into(),
+        subtitle: user.into(),
+        code: group(&otp::code(p, now)).into(),
+        left_text: format!("{left}s").into(),
+        progress: left as f32 / p.period as f32,
+    }
+}
+
+/// Rebuilds the Codes list from the vault.
+fn refresh_codes(c: &mut Ctl) {
+    let mut found: Vec<(String, String, String, OtpParams)> = {
+        let mut s = state::session();
+        let list: Vec<(String, String, String, OtpParams)> = match s.entries() {
+            Some(es) => es
+                .iter()
+                .filter_map(|e| otp::parse(&e.otp).map(|p| (e.id.clone(), e.title.clone(), e.username.clone(), p)))
+                .collect(),
+            None => Vec::new(),
+        };
+        list
+    };
+    found.sort_by_key(|f| f.1.to_lowercase());
+    let now = now_secs();
+    let rows: Vec<OtpRow> = found.iter().map(|(id, title, user, p)| code_row(id, title, user, p, now)).collect();
+    c.codes = found.into_iter().map(|(id, _, _, p)| (id, p)).collect();
+    c.code_model.set_vec(rows);
+}
+
+/// Updates only the rows whose code or countdown text changed.
+fn tick_codes(c: &Ctl) {
+    let now = now_secs();
+    for (i, (_, p)) in c.codes.iter().enumerate() {
+        let Some(old) = c.code_model.row_data(i) else { continue };
+        let left = otp::seconds_left(p, now);
+        let code = group(&otp::code(p, now));
+        let left_text = format!("{left}s");
+        if old.code.as_str() != code || old.left_text.as_str() != left_text {
+            c.code_model.set_row_data(
+                i,
+                OtpRow { code: code.into(), left_text: left_text.into(), progress: left as f32 / p.period as f32, ..old },
+            );
+        }
+    }
+}
+
+fn show_auth(ui: &MainWindow, c: &Ctl) {
+    match &c.auth_otp {
+        Some(p) => {
+            let now = now_secs();
+            let left = otp::seconds_left(p, now);
+            ui.set_a_code(group(&otp::code(p, now)).into());
+            ui.set_a_left_text(format!("{left}s").into());
+            ui.set_a_progress(left as f32 / p.period as f32);
+        }
+        None => ui.set_a_code("".into()),
+    }
+}
+
+fn clear_auth(ui: &MainWindow, c: &mut Ctl) {
+    c.auth_otp = None;
+    ui.set_a_name("".into());
+    ui.set_a_secret("".into());
+    ui.set_a_code("".into());
+    ui.set_a_invalid(false);
+}
+
+fn finish_import(ui: &MainWindow, c: &mut Ctl, imp: transfer::Imported) {
+    let result = state::session().merge_entries(imp.entries);
+    match result {
+        Ok((added, dups)) => {
+            refresh_rows(ui, &ui.get_query());
+            refresh_codes(c);
+            ui.set_error("".into());
+            let mut msg = format!("Imported {added} {}.", if added == 1 { "login" } else { "logins" });
+            if dups > 0 {
+                msg += &format!(" {dups} already in the vault, skipped.");
+            }
+            if imp.skipped > 0 {
+                msg += &format!(" {} in the trash or empty, skipped.", imp.skipped);
+            }
+            if imp.passkeys > 0 {
+                msg += &format!(" {} passkey(s) can't be moved to another app.", imp.passkeys);
+            }
+            ui.set_notice(msg.into());
+        }
+        Err(Error::Locked) => lock_ui(ui, c),
+        Err(e) => ui.set_error(e.to_string().into()),
+    }
 }

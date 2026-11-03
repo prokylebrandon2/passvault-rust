@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "PassVault",
+  "version": "0.1.0",
+  "description": "Fill logins and one-time codes from your PassVault backup. Works offline: nothing leaves your browser.",
+  "action": {
+    "default_title": "PassVault",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png" }
+  },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "permissions": ["storage", "alarms", "activeTab", "scripting"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Ctrl+Shift+L", "mac": "Command+Shift+L" },
+      "description": "Open PassVault"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; base-uri 'none'; form-action 'none'"
+  }
+}

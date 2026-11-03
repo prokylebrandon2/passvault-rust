@@ -38,6 +38,9 @@ public class PvActivity extends NativeActivity {
     static final int KEY_CREATE = 2;
     static final int BACKUP_OUT = 3;
     static final int BACKUP_IN = 4;
+    static final int IMPORT_IN = 5;
+    static final int EXPORT_CSV = 6;
+    static final int EXPORT_JSON = 7;
     // Status passed to Native.onFile.
     static final int OK = 0;
     static final int CANCELLED = 1;
@@ -71,30 +74,43 @@ public class PvActivity extends NativeActivity {
         runOnUiThread(() -> {
             Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT)
                     .addCategory(Intent.CATEGORY_OPENABLE)
-                    .setType("application/octet-stream")
+                    .setType(mimeFor(name))
                     .putExtra(Intent.EXTRA_TITLE, name);
             startActivityForResult(i, code);
         });
     }
 
+    private static String mimeFor(String name) {
+        String n = name == null ? "" : name.toLowerCase();
+        if (n.endsWith(".csv")) return "text/csv";
+        if (n.endsWith(".json")) return "application/json";
+        return "application/octet-stream";
+    }
+
     @Override
     protected void onActivityResult(int code, int result, Intent data) {
         super.onActivityResult(code, result, data);
-        if (code < KEY_PICK || code > BACKUP_IN) return;
+        if (code < KEY_PICK || code > EXPORT_JSON) return;
         byte[] out = null;
         String name = null;
         int status = CANCELLED;
         if (result == RESULT_OK && data != null && data.getData() != null) {
             Uri uri = data.getData();
             try {
-                if (code == KEY_CREATE || code == BACKUP_OUT) {
+                boolean writing = code == KEY_CREATE || code == BACKUP_OUT || code == EXPORT_CSV || code == EXPORT_JSON;
+                if (writing) {
                     out = pendingData;
                     if (out == null) throw new IllegalStateException("nothing to write");
                     try (OutputStream os = getContentResolver().openOutputStream(uri)) {
                         os.write(out);
                     }
+                    if (code == EXPORT_CSV || code == EXPORT_JSON) {
+                        // Plain-text export: wipe our copy and don't hand it back to Rust.
+                        java.util.Arrays.fill(out, (byte) 0);
+                        out = null;
+                    }
                 } else {
-                    out = readAll(uri, code == KEY_PICK ? KEY_LIMIT : FILE_LIMIT);
+                    out = readAll(uri, code == KEY_PICK ? KEY_LIMIT : FILE_LIMIT); // IMPORT_IN and BACKUP_IN read a whole file
                 }
                 name = displayName(uri);
                 if (code == KEY_PICK || code == KEY_CREATE) remember(uri, code == KEY_CREATE);

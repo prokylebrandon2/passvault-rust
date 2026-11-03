@@ -31,6 +31,28 @@ jobs:
       - name: Test the core crate
         run: cargo test -p passvault-core
 
+  # The Brave/Chrome extension: Argon2id against the RFC 9106 vectors, vault opening, TOTP vectors.
+  extension:
+    name: Browser extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test
+        run: npm test
+        working-directory: browser-extension
+      - name: Package
+        run: |
+          cd browser-extension
+          zip -r ../passvault-extension.zip manifest.json background.js popup.html popup.css popup.js src icons
+      - uses: actions/upload-artifact@v4
+        with:
+          name: passvault-brave-extension
+          path: passvault-extension.zip
+
   android:
     name: Build the Android app
     needs: core
