@@ -96,15 +96,19 @@ jobs:
       - name: Build the Rust library for Android
         run: cargo ndk --platform 26 -t arm64-v8a -t x86_64 -o android/app/src/main/jniLibs build --release --package passvault
 
-      - name: Add libc++_shared.so in case the build needs it
+      - name: Check the native libs do not need libc++_shared.so
         run: |
           NDK="${ANDROID_NDK_HOME:-$ANDROID_NDK_LATEST_HOME}"
-          SYSROOT="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib"
-          JNI=android/app/src/main/jniLibs
-          copy() { [ -f "$SYSROOT/$1/libc++_shared.so" ] && cp "$SYSROOT/$1/libc++_shared.so" "$JNI/$2/"; return 0; }
-          copy aarch64-linux-android arm64-v8a
-          copy x86_64-linux-android x86_64
-          ls -l "$JNI"/*/
+          READELF="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          for f in android/app/src/main/jniLibs/*/libpassvault.so; do
+            echo "== $f"
+            "$READELF" -d "$f" | grep NEEDED
+            if "$READELF" -d "$f" | grep -q 'libc++_shared'; then
+              echo "::error::$f needs libc++_shared.so"
+              exit 1
+            fi
+          done
+          ls -l android/app/src/main/jniLibs/*/
 
       - uses: gradle/actions/setup-gradle@v5
         with:
