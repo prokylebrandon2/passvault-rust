@@ -52,6 +52,22 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Slint's Android backend build script needs an android.jar from an installed SDK platform.
+      # Make sure one exists, then point the build script straight at it.
+      - name: Ensure an Android SDK platform is installed
+        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "Android SDK: $SDK"
+          ls -la "$SDK/platforms" 2>&1 || true
+          if [ ! -f "$SDK/platforms/android-35/android.jar" ]; then
+            SDKMANAGER="$(command -v sdkmanager || echo "$SDK/cmdline-tools/latest/bin/sdkmanager")"
+            yes | "$SDKMANAGER" --sdk_root="$SDK" --licenses > /dev/null || true
+            "$SDKMANAGER" --sdk_root="$SDK" "platforms;android-35"
+          fi
+          test -f "$SDK/platforms/android-35/android.jar"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_JAR=$SDK/platforms/android-35/android.jar" >> "$GITHUB_ENV"
+
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
