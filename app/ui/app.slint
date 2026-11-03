@@ -379,6 +379,10 @@ component RowItem inherits Rectangle {
 }
 
 export component MainWindow inherits Window {
+    in-out property <bool> bio-available;
+    in-out property <bool> bio-enrolled;
+    callback bio-unlock();
+    callback bio-set(bool);
     title: "PassVault";
     background: Theme.bg;
 
@@ -514,6 +518,11 @@ export component MainWindow inherits Window {
                 primary: true;
                 active: !root.busy && root.pw1 != "";
                 clicked => { root.submit(); }
+            }
+            if root.bio-enrolled && !root.creating : PvButton {
+                text: "Unlock with biometrics";
+                active: !root.busy;
+                clicked => { root.bio-unlock(); }
             }
         }
     }
@@ -774,10 +783,10 @@ export component MainWindow inherits Window {
             if root.screen == 5 : Flickable {
                 width: parent.width;
                 height: parent.height;
-                content-height: 1000px;
+                content-height: 1100px;
                 VerticalLayout {
                     width: root.width;
-                    height: 1000px;
+                    height: 1100px;
                     alignment: start;
                     padding: 16px;
                     spacing: 12px;
@@ -840,6 +849,14 @@ export component MainWindow inherits Window {
                                 }
                             }
                         }
+                    }
+
+                    if root.bio-available : SectionLabel { text: "SECURITY"; }
+                    if root.bio-available : PvToggle {
+                        label: "Unlock with biometrics";
+                        hint: "Fingerprint or face instead of the master password";
+                        checked <=> root.bio-enrolled;
+                        toggled => { root.bio-set(root.bio-enrolled); }
                     }
 
                     SectionLabel { text: "VAULT"; }

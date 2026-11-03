@@ -262,4 +262,17 @@ public class PvActivity extends NativeActivity {
             finish();
         });
     }
+
+    private Bio bio;
+
+    private synchronized Bio bio() {
+        if (bio == null) bio = new Bio(this);
+        return bio;
+    }
+
+    public boolean bioAvailable() { return bio().available(); }
+    public boolean bioEnrolled() { return bio().enrolled(); }
+    public void bioEnroll(byte[] key) { bio().enroll(key); }
+    public void bioUnlock() { bio().unlock(); }
+    public void bioDisable() { bio().disable(); }
 }

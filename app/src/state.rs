@@ -12,6 +12,8 @@ pub enum Event {
     File { code: i32, status: i32, name: Option<String>, data: Option<Vec<u8>> },
     /// Result of the background unlock or create.
     Unlocked(Result<(), String>),
+    /// Result of a biometric prompt. `op`: 1 enroll, 2 unlock. `status`: 0 ok, 1 cancelled, 2 failed, 3 invalidated.
+    Bio { op: i32, status: i32, key: Option<zeroize::Zeroizing<Vec<u8>>> },
 }
 
 pub fn session() -> MutexGuard<'static, Session> {

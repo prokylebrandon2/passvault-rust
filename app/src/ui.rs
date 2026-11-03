@@ -22,6 +22,13 @@ const IMPORT_IN: i32 = 5;
 const EXPORT_CSV: i32 = 6;
 const EXPORT_JSON: i32 = 7;
 
+// Shared with Bio.java.
+const BIO_ENROLL: i32 = 1;
+const BIO_UNLOCK: i32 = 2;
+const BIO_OK: i32 = 0;
+const BIO_CANCELLED: i32 = 1;
+const BIO_INVALIDATED: i32 = 3;
+
 #[derive(Default)]
 struct Ctl {
     creating: bool,
@@ -41,6 +48,11 @@ struct Ctl {
     code_model: Rc<VecModel<OtpRow>>,
     /// The secret being typed on the Add authenticator screen.
     auth_otp: Option<OtpParams>,
+    bio_enrolled: bool,
+    /// A biometric prompt is on screen.
+    bio_pending: bool,
+    /// The lock screen already auto-prompted (or must not): stops prompt loops.
+    bio_prompted: bool,
 }
 
 type Shared = Rc<RefCell<Ctl>>;
@@ -70,6 +82,9 @@ pub fn run(dir: PathBuf) {
         c.creating = !state::session().exists();
         c.auth_mode = bridge::is_autofill_request();
         ui.set_creating(c.creating);
+        c.bio_enrolled = bridge::bio_enrolled();
+        ui.set_bio_available(bridge::bio_available());
+        ui.set_bio_enrolled(c.bio_enrolled);
     }
     ui.global::<Theme>().set_dark(bridge::is_dark());
     ui.set_autofill_on(bridge::autofill_enabled());
@@ -109,6 +124,37 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
             state::push(Event::Unlocked(result.map_err(|e| e.to_string())));
         });
     });
+
+    handler!(ui, ctl, on_bio_unlock, |ui, c| {
+        start_bio_unlock(&ui, &mut c);
+    });
+    {
+        let (weak, shared) = (ui.as_weak(), ctl.clone());
+        ui.on_bio_set(move |on| {
+            let ui = weak.unwrap();
+            let mut c = shared.borrow_mut();
+            state::touch();
+            ui.set_error("".into());
+            ui.set_notice("".into());
+            if on {
+                let key = state::session().export_key();
+                match key {
+                    Ok(k) => {
+                        c.bio_pending = true;
+                        bridge::bio_enroll(&k[..]); // k is wiped when it drops
+                    }
+                    Err(Error::Locked) => lock_ui(&ui, &mut c),
+                    Err(e) => ui.set_error(e.to_string().into()),
+                }
+                // Stay off until Android confirms.
+                ui.set_bio_enrolled(c.bio_enrolled);
+            } else {
+                bridge::bio_disable();
+                c.bio_enrolled = false;
+                ui.set_bio_enrolled(false);
+            }
+        });
+    }
 
     handler!(ui, ctl, on_pick_key_file, |_u, _c| {
         bridge::pick_file(KEY_PICK);
@@ -371,6 +417,22 @@ fn unlock_or_create(creating: bool, pw: &str, key_file: Option<&[u8]>) -> Result
     }
 }
 
+fn unlock_with_key(key: &[u8; 32]) -> Result<(), Error> {
+    let bytes = state::session().read_file()?;
+    let vault = Vault::open_with_key(&bytes, key)?;
+    state::session().install(vault, false)
+}
+
+fn start_bio_unlock(ui: &MainWindow, c: &mut Ctl) {
+    if c.creating || !c.bio_enrolled || c.bio_pending || ui.get_busy() {
+        return;
+    }
+    c.bio_pending = true;
+    c.bio_prompted = true;
+    ui.set_error("".into());
+    bridge::bio_unlock();
+}
+
 fn start_timer(timer: &slint::Timer, ui: &MainWindow, ctl: &Shared) {
     let (weak, shared) = (ui.as_weak(), ctl.clone());
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(250), move || {
@@ -383,6 +445,9 @@ fn start_timer(timer: &slint::Timer, ui: &MainWindow, ctl: &Shared) {
         if ui.get_screen() != 0 && !state::session().is_unlocked() {
             lock_ui(&ui, &mut c);
         }
+        if ui.get_screen() == 0 && c.bio_enrolled && !c.bio_prompted {
+            start_bio_unlock(&ui, &mut c);
+        }
         match ui.get_screen() {
             2 => show_otp(&ui, &c),
             3 => tick_codes(&c),
@@ -392,6 +457,8 @@ fn start_timer(timer: &slint::Timer, ui: &MainWindow, ctl: &Shared) {
         c.ticks = c.ticks.wrapping_add(1);
         if c.ticks % 8 == 0 {
             ui.set_autofill_on(bridge::autofill_enabled());
+            c.bio_enrolled = bridge::bio_enrolled();
+            ui.set_bio_enrolled(c.bio_enrolled);
         }
     });
 }
@@ -419,6 +486,46 @@ fn handle_event(ui: &MainWindow, c: &mut Ctl, ev: Event) {
             ui.set_busy(false);
             ui.set_error(msg.into());
         }
+        Event::Bio { op, status, key } => {
+            c.bio_pending = false;
+            match op {
+                BIO_ENROLL => {
+                    if status == BIO_OK {
+                        c.bio_enrolled = true;
+                        ui.set_notice("Biometric unlock is on.".into());
+                    } else if status != BIO_CANCELLED {
+                        ui.set_error("Couldn't turn on biometric unlock.".into());
+                    }
+                    ui.set_bio_enrolled(c.bio_enrolled);
+                }
+                BIO_UNLOCK => match (status, key) {
+                    (BIO_OK, Some(k)) if k.len() == 32 => {
+                        let mut kk = Zeroizing::new([0u8; 32]);
+                        kk.copy_from_slice(&k);
+                        ui.set_busy(true);
+                        ui.set_error("".into());
+                        state::touch();
+                        std::thread::spawn(move || {
+                            let result = unlock_with_key(&kk);
+                            if result.is_err() {
+                                bridge::bio_disable(); // the stored key no longer matches this vault
+                            }
+                            state::push(Event::Unlocked(result.map_err(|_| {
+                                "Biometric unlock is out of date. Use your master password.".to_string()
+                            })));
+                        });
+                    }
+                    (BIO_INVALIDATED, _) => {
+                        c.bio_enrolled = false;
+                        ui.set_bio_enrolled(false);
+                        ui.set_error("Your biometrics changed, so biometric unlock was turned off. Use your master password.".into());
+                    }
+                    (BIO_CANCELLED, _) => {}
+                    _ => ui.set_error("Biometric unlock didn't work. Use your master password.".into()),
+                },
+                _ => {}
+            }
+        }
         Event::File { code, status, name, data } => match (code, status) {
             (KEY_PICK | KEY_CREATE, 0) => {
                 if let Some(d) = data {
@@ -439,6 +546,9 @@ fn handle_event(ui: &MainWindow, c: &mut Ctl, ev: Event) {
                             ui.set_creating(false);
                             ui.set_error("".into());
                             ui.set_notice("Backup restored. Enter its password to unlock it.".into());
+                            bridge::bio_disable();
+                            c.bio_enrolled = false;
+                            ui.set_bio_enrolled(false);
                         }
                         Err(e) => ui.set_error(e.to_string().into()),
                     }
@@ -474,6 +584,7 @@ fn lock_ui(ui: &MainWindow, c: &mut Ctl) {
     clear_auth(ui, c);
     ui.set_export_ask(0);
     c.key_file = None; // wiped on drop; restored from the remembered location below
+    c.bio_prompted = true;
     c.creating = false;
     clear_form(ui);
     ui.set_pw1("".into());

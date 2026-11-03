@@ -95,6 +95,29 @@ pub fn is_autofill_request() -> bool {
     call_bool("isAutofillRequest")
 }
 
+pub fn bio_available() -> bool {
+    call_bool("bioAvailable")
+}
+
+pub fn bio_enrolled() -> bool {
+    call_bool("bioEnrolled")
+}
+
+pub fn bio_unlock() {
+    with_env(|e, a| e.call_method(a, "bioUnlock", "()V", &[]).map(|_| ()));
+}
+
+pub fn bio_disable() {
+    with_env(|e, a| e.call_method(a, "bioDisable", "()V", &[]).map(|_| ()));
+}
+
+pub fn bio_enroll(key: &[u8]) {
+    with_env(|e, a| {
+        let k: JObject = e.byte_array_from_slice(key)?.into();
+        e.call_method(a, "bioEnroll", "([B)V", &[JValue::Object(&k)]).map(|_| ())
+    });
+}
+
 // ---- Java -> Rust ----
 
 #[no_mangle]
@@ -125,4 +148,20 @@ pub extern "system" fn Java_app_passvault_Native_onFile<'l>(
 #[no_mangle]
 pub extern "system" fn Java_app_passvault_Native_lock<'l>(_env: JNIEnv<'l>, _class: JClass<'l>) {
     state::lock();
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_passvault_Native_onBio<'l>(
+    env: JNIEnv<'l>,
+    _class: JClass<'l>,
+    op: jint,
+    status: jint,
+    key: JByteArray<'l>,
+) {
+    let key = if key.as_raw().is_null() {
+        None
+    } else {
+        env.convert_byte_array(&key).ok().map(zeroize::Zeroizing::new)
+    };
+    state::push(Event::Bio { op, status, key });
 }

@@ -4,7 +4,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Holds the unlocked vault in memory and the path of the encrypted file. Locks itself after
 /// `idle` without activity. Key derivation is slow, so callers do it *outside* this struct and
@@ -84,6 +84,12 @@ impl Session {
         self.vault = Some(vault);
         self.touch();
         Ok(())
+    }
+
+    /// The vault key for wrapping by biometrics, or `Locked`.
+    pub fn export_key(&mut self) -> Result<Zeroizing<[u8; 32]>, Error> {
+        self.check_idle();
+        self.vault.as_ref().map(|v| v.export_key()).ok_or(Error::Locked)
     }
 
     /// The entries, or `None` while locked.

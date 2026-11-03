@@ -16,4 +16,6 @@ public final class Native {
 
     /** Wipes the unlocked vault from memory. */
     public static native void lock();
+
+    static native void onBio(int op, int status, byte[] key);
 }
