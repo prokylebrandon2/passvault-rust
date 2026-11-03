@@ -103,7 +103,7 @@ jobs:
           for f in android/app/src/main/jniLibs/*/libpassvault.so; do
             echo "== $f"
             "$READELF" -d "$f" | grep NEEDED
-            if "$READELF" -d "$f" | grep -q 'libc++_shared'; then
+            if "$READELF" -d "$f" | grep 'libc++_shared' > /dev/null; then
               echo "::error::$f needs libc++_shared.so"
               exit 1
             fi
