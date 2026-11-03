@@ -18,7 +18,7 @@ pub fn init(app: &slint::android::AndroidApp) {
     // SAFETY: android-activity keeps both pointers valid for the life of the activity.
     let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }.expect("JavaVM");
     let activity = {
-        let mut env = vm.attach_current_thread().expect("attach to the JVM");
+        let env = vm.attach_current_thread().expect("attach to the JVM");
         let obj = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
         env.new_global_ref(&obj).expect("global ref to the activity")
     };
