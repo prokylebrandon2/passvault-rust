@@ -214,7 +214,7 @@ export component MainWindow inherits Window {
     if root.screen == 0 : Flickable {
         width: root.width;
         height: root.height;
-        viewport-height: max(root.height, 720px);
+        content-height: max(root.height, 720px);
         VerticalLayout {
             width: root.width;
             height: max(root.height, 720px);
@@ -303,7 +303,7 @@ export component MainWindow inherits Window {
         }
         Flickable {
             vertical-stretch: 1;
-            viewport-height: root.rows.length * 64px;
+            content-height: root.rows.length * 64px;
             VerticalLayout {
                 width: root.width;
                 height: root.rows.length * 64px;
@@ -338,7 +338,7 @@ export component MainWindow inherits Window {
         }
         Flickable {
             vertical-stretch: 1;
-            viewport-height: 900px;
+            content-height: 900px;
             VerticalLayout {
                 width: root.width;
                 height: 900px;
