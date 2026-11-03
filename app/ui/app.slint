@@ -1,0 +1,384 @@
+// PassVault UI. Verdigris (the green patina on old brass keys) as the accent;
+// brass appears only on the one-time-code countdown.
+
+export struct Row { id: string, title: string, subtitle: string }
+
+export global Theme {
+    in property <bool> dark: false;
+    in-out property <color> bg: dark ? #0f1514 : #f4f6f5;
+    in-out property <color> surface: dark ? #1b2523 : #e2e9e7;
+    in-out property <color> raised: dark ? #202c2a : #dce5e2;
+    in-out property <color> fg: dark ? #dde5e2 : #141b19;
+    in-out property <color> muted: dark ? #93a39f : #55645f;
+    in-out property <color> accent: dark ? #7bd3bf : #17695b;
+    in-out property <color> on-accent: dark ? #00382e : #ffffff;
+    in-out property <color> brass: dark ? #e3b866 : #8a5f12;
+    in-out property <color> danger: dark ? #ff8a80 : #b3261e;
+    in-out property <color> outline: dark ? #3a4a46 : #b6c4c0;
+}
+
+component PvButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> active: true;
+    callback clicked();
+    height: 48px;
+    border-radius: 10px;
+    border-width: root.primary ? 0px : 1px;
+    border-color: Theme.outline;
+    background: !root.active ? Theme.surface : root.primary ? Theme.accent : touch.pressed ? Theme.raised : transparent;
+    opacity: root.active ? 1.0 : 0.55;
+    touch := TouchArea {
+        enabled: root.active;
+        clicked => { root.clicked(); }
+    }
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        color: root.primary ? Theme.on-accent : Theme.accent;
+        font-size: 16px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component PvLink inherits Rectangle {
+    in property <string> text;
+    in property <color> tint: Theme.accent;
+    callback clicked();
+    height: 44px;
+    preferred-width: label.preferred-width + 16px;
+    min-width: label.preferred-width + 16px;
+    TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        label := Text {
+            text: root.text;
+            color: root.tint;
+            font-size: 15px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component PvField inherits Rectangle {
+    in property <string> label;
+    in property <bool> secret: false;
+    in property <bool> multiline: false;
+    in-out property <string> text <=> ti.text;
+    callback edited();
+    height: root.multiline ? 120px : 56px;
+    border-radius: 8px;
+    border-width: ti.has-focus ? 2px : 1px;
+    border-color: ti.has-focus ? Theme.accent : Theme.outline;
+    background: Theme.surface;
+    TouchArea { clicked => { ti.focus(); } }
+    Text {
+        x: 12px;
+        y: 7px;
+        width: parent.width - 24px;
+        text: root.label;
+        font-size: 12px;
+        color: Theme.muted;
+        overflow: elide;
+    }
+    ti := TextInput {
+        x: 12px;
+        y: 26px;
+        width: parent.width - 24px;
+        height: parent.height - 30px;
+        font-size: 16px;
+        color: Theme.fg;
+        single-line: !root.multiline;
+        wrap: root.multiline ? TextWrap.word-wrap : TextWrap.no-wrap;
+        input-type: root.secret ? InputType.password : InputType.text;
+        edited => { root.edited(); }
+    }
+}
+
+// The one loud element: a big live code with a brass countdown. Tap to copy.
+component OtpCard inherits Rectangle {
+    in property <string> code;
+    in property <string> left-text;
+    in property <float> progress;
+    callback copy();
+    height: 116px;
+    border-radius: 12px;
+    background: Theme.raised;
+    TouchArea { clicked => { root.copy(); } }
+    Text {
+        x: 16px;
+        y: 12px;
+        text: root.code;
+        font-size: 40px;
+        font-weight: 700;
+        color: Theme.accent;
+        font-family: "monospace";
+    }
+    Text {
+        x: parent.width - 64px;
+        y: 24px;
+        width: 48px;
+        text: root.left-text;
+        font-size: 18px;
+        color: Theme.fg;
+        horizontal-alignment: right;
+    }
+    Rectangle {
+        x: 16px;
+        y: 76px;
+        width: parent.width - 32px;
+        height: 6px;
+        border-radius: 3px;
+        background: Theme.surface;
+        Rectangle {
+            width: parent.width * root.progress;
+            height: parent.height;
+            border-radius: 3px;
+            background: Theme.brass;
+        }
+    }
+    Text { x: 16px; y: 92px; text: "Tap to copy"; font-size: 12px; color: Theme.muted; }
+}
+
+component RowItem inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    callback clicked();
+    height: 64px;
+    background: touch.pressed ? Theme.surface : transparent;
+    touch := TouchArea { clicked => { root.clicked(); } }
+    VerticalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        alignment: center;
+        spacing: 2px;
+        Text { text: root.title; font-size: 17px; color: Theme.fg; overflow: elide; }
+        if root.subtitle != "" : Text { text: root.subtitle; font-size: 14px; color: Theme.muted; overflow: elide; }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "PassVault";
+    background: Theme.bg;
+
+    in-out property <int> screen: 0; // 0 unlock or create, 1 list, 2 edit
+    in property <bool> creating: false;
+    in property <bool> busy: false;
+    in property <bool> autofill-on: true;
+    in property <bool> is-new: true;
+    in property <string> error: "";
+    in property <string> notice: "";
+    in property <string> key-file-name: "";
+    in property <[Row]> rows: [];
+    in property <string> otp-code: "";
+    in property <string> otp-left-text: "";
+    in property <float> otp-progress: 0.0;
+    in property <bool> otp-invalid: false;
+    in-out property <bool> show-password: false;
+    in-out property <string> pw1: "";
+    in-out property <string> pw2: "";
+    in-out property <string> query: "";
+    in-out property <string> f-title: "";
+    in-out property <string> f-user: "";
+    in-out property <string> f-password: "";
+    in-out property <string> f-url: "";
+    in-out property <string> f-otp: "";
+    in-out property <string> f-notes: "";
+
+    callback submit();
+    callback pick-key-file();
+    callback create-key-file();
+    callback clear-key-file();
+    callback restore-backup();
+    callback lock();
+    callback backup();
+    callback enable-autofill();
+    callback search();
+    callback new-login();
+    callback open-login(string);
+    callback save();
+    callback delete-login();
+    callback back();
+    callback generate();
+    callback copy-password();
+    callback copy-otp();
+    callback otp-edited();
+    callback activity();
+
+    // Unlock or create
+    if root.screen == 0 : Flickable {
+        width: root.width;
+        height: root.height;
+        viewport-height: max(root.height, 720px);
+        VerticalLayout {
+            width: root.width;
+            height: max(root.height, 720px);
+            alignment: start;
+            padding: 24px;
+            padding-top: 40px;
+            spacing: 12px;
+            Text {
+                text: root.creating ? "Create your vault" : "Unlock vault";
+                font-size: 28px;
+                font-weight: 700;
+                color: Theme.fg;
+            }
+            if root.creating : Text {
+                text: "You'll need your master password, and your key file if you use one, to open this vault. Nobody can recover them for you, so keep a copy of the key file somewhere safe.";
+                wrap: word-wrap;
+                font-size: 14px;
+                color: Theme.muted;
+            }
+            PvField { label: "Master password"; secret: true; text <=> root.pw1; edited => { root.activity(); } }
+            if root.creating : PvField { label: "Confirm master password"; secret: true; text <=> root.pw2; edited => { root.activity(); } }
+            HorizontalLayout {
+                spacing: 4px;
+                Text {
+                    text: root.key-file-name == "" ? "No key file" : root.key-file-name;
+                    color: Theme.fg;
+                    font-size: 14px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+                PvLink { text: "Choose key file"; clicked => { root.pick-key-file(); } }
+                if root.key-file-name != "" : PvLink { text: "Clear"; clicked => { root.clear-key-file(); } }
+            }
+            if root.creating : PvLink { text: "Create a new key file"; clicked => { root.create-key-file(); } }
+            if root.creating : PvLink { text: "Restore from backup"; clicked => { root.restore-backup(); } }
+            if root.error != "" : Text { text: root.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
+            if root.notice != "" : Text { text: root.notice; color: Theme.accent; font-size: 14px; wrap: word-wrap; }
+            PvButton {
+                text: root.busy ? "Working…" : root.creating ? "Create vault" : "Unlock vault";
+                primary: true;
+                active: !root.busy && root.pw1 != "";
+                clicked => { root.submit(); }
+            }
+        }
+    }
+
+    // Login list
+    if root.screen == 1 : VerticalLayout {
+        width: root.width;
+        height: root.height;
+        padding-top: 16px;
+        padding-bottom: 12px;
+        spacing: 8px;
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 8px;
+            spacing: 4px;
+            Text { text: "PassVault"; font-size: 24px; font-weight: 700; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; }
+            PvLink { text: "Back up"; clicked => { root.backup(); } }
+            PvLink { text: "Lock"; clicked => { root.lock(); } }
+        }
+        if !root.autofill-on : Rectangle {
+            height: 52px;
+            background: Theme.raised;
+            border-radius: 10px;
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 4px;
+                Text { text: "Autofill is off. Turn it on to fill logins in other apps."; wrap: word-wrap; font-size: 14px; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; }
+                PvLink { text: "Turn on"; clicked => { root.enable-autofill(); } }
+            }
+        }
+        VerticalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            PvField { label: "Search logins"; text <=> root.query; edited => { root.activity(); root.search(); } }
+        }
+        if root.notice != "" : Text { text: root.notice; color: Theme.accent; font-size: 14px; horizontal-alignment: center; }
+        if root.error != "" : Text { text: root.error; color: Theme.danger; font-size: 14px; horizontal-alignment: center; }
+        if root.rows.length == 0 : Text {
+            text: root.query == "" ? "No logins yet. Add your first one." : "No logins match your search.";
+            color: Theme.muted;
+            font-size: 15px;
+            horizontal-alignment: center;
+        }
+        Flickable {
+            vertical-stretch: 1;
+            viewport-height: root.rows.length * 64px;
+            VerticalLayout {
+                width: root.width;
+                height: root.rows.length * 64px;
+                alignment: start;
+                for r in root.rows : RowItem {
+                    title: r.title;
+                    subtitle: r.subtitle;
+                    clicked => { root.open-login(r.id); }
+                }
+            }
+        }
+        VerticalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            PvButton { text: "Add login"; primary: true; clicked => { root.new-login(); } }
+        }
+    }
+
+    // Edit login
+    if root.screen == 2 : VerticalLayout {
+        width: root.width;
+        height: root.height;
+        padding-top: 16px;
+        spacing: 4px;
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 4px;
+            PvLink { text: "Back"; clicked => { root.back(); } }
+            Text { text: root.is-new ? "New login" : "Edit login"; font-size: 20px; font-weight: 700; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; }
+            if !root.is-new : PvLink { text: "Delete"; tint: Theme.danger; clicked => { root.delete-login(); } }
+        }
+        Flickable {
+            vertical-stretch: 1;
+            viewport-height: 900px;
+            VerticalLayout {
+                width: root.width;
+                height: 900px;
+                alignment: start;
+                padding: 16px;
+                spacing: 10px;
+                PvField { label: "Title"; text <=> root.f-title; edited => { root.activity(); } }
+                PvField { label: "Username or email"; text <=> root.f-user; edited => { root.activity(); } }
+                PvField { label: "Password"; secret: !root.show-password; text <=> root.f-password; edited => { root.activity(); } }
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    PvLink { text: root.show-password ? "Hide" : "Show"; clicked => { root.show-password = !root.show-password; } }
+                    PvLink { text: "Generate"; clicked => { root.generate(); } }
+                    PvLink { text: "Copy"; clicked => { root.copy-password(); } }
+                }
+                PvField { label: "Website or app"; text <=> root.f-url; edited => { root.activity(); } }
+                Text {
+                    text: "https://example.com or androidapp://com.example.app. Autofill uses this to find the login.";
+                    wrap: word-wrap;
+                    font-size: 12px;
+                    color: Theme.muted;
+                }
+                PvField { label: "One-time password secret"; text <=> root.f-otp; edited => { root.activity(); root.otp-edited(); } }
+                if root.otp-code != "" : OtpCard {
+                    code: root.otp-code;
+                    left-text: root.otp-left-text;
+                    progress: root.otp-progress;
+                    copy => { root.copy-otp(); }
+                }
+                if root.otp-invalid : Text {
+                    text: "That isn't a valid secret. Paste the Base32 setup key or an otpauth:// link.";
+                    wrap: word-wrap;
+                    font-size: 13px;
+                    color: Theme.danger;
+                }
+                PvField { label: "Notes"; multiline: true; text <=> root.f-notes; edited => { root.activity(); } }
+                if root.error != "" : Text { text: root.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
+                PvButton { text: "Save login"; primary: true; active: root.f-title != ""; clicked => { root.save(); } }
+            }
+        }
+    }
+}

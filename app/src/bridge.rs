@@ -1,0 +1,128 @@
+//! JNI in both directions. Java calls `Native.fill/onFile/lock` (exported below); Rust calls the public
+//! methods of `PvActivity` on the running activity. Everything crossing the boundary is a string, int,
+//! boolean or byte array.
+use crate::state::{self, Event};
+use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
+use jni::sys::jint;
+use jni::{JNIEnv, JavaVM};
+use std::sync::Mutex;
+
+struct Bridge {
+    vm: JavaVM,
+    activity: GlobalRef,
+}
+
+static BRIDGE: Mutex<Option<Bridge>> = Mutex::new(None);
+
+pub fn init(app: &slint::android::AndroidApp) {
+    // SAFETY: android-activity keeps both pointers valid for the life of the activity.
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }.expect("JavaVM");
+    let activity = {
+        let mut env = vm.attach_current_thread().expect("attach to the JVM");
+        let obj = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
+        env.new_global_ref(&obj).expect("global ref to the activity")
+    };
+    // android_main runs again if the activity is recreated in the same process: keep the newest one.
+    *BRIDGE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Bridge { vm, activity });
+}
+
+fn with_env<R>(f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<R>) -> Option<R> {
+    let guard = BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
+    let b = guard.as_ref()?;
+    let mut env = b.vm.attach_current_thread().ok()?;
+    let out = f(&mut *env, b.activity.as_obj());
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_describe();
+        let _ = env.exception_clear();
+    }
+    out.ok()
+}
+
+pub fn pick_file(code: i32) {
+    with_env(|e, a| e.call_method(a, "pickFile", "(I)V", &[JValue::Int(code)]).map(|_| ()));
+}
+
+pub fn create_file(code: i32, name: &str, data: &[u8]) {
+    with_env(|e, a| {
+        let n: JObject = e.new_string(name)?.into();
+        let d: JObject = e.byte_array_from_slice(data)?.into();
+        e.call_method(
+            a,
+            "createFile",
+            "(ILjava/lang/String;[B)V",
+            &[JValue::Int(code), JValue::Object(&n), JValue::Object(&d)],
+        )
+        .map(|_| ())
+    });
+}
+
+pub fn copy(text: &str) {
+    with_env(|e, a| {
+        let t: JObject = e.new_string(text)?.into();
+        e.call_method(a, "copyToClipboard", "(Ljava/lang/String;)V", &[JValue::Object(&t)]).map(|_| ())
+    });
+}
+
+pub fn restore_key_file() {
+    with_env(|e, a| e.call_method(a, "restoreKeyFile", "()V", &[]).map(|_| ()));
+}
+
+pub fn forget_key_file() {
+    with_env(|e, a| e.call_method(a, "forgetKeyFile", "()V", &[]).map(|_| ()));
+}
+
+pub fn finish_with_fill() {
+    with_env(|e, a| e.call_method(a, "finishWithFill", "()V", &[]).map(|_| ()));
+}
+
+pub fn open_autofill_settings() {
+    with_env(|e, a| e.call_method(a, "openAutofillSettings", "()V", &[]).map(|_| ()));
+}
+
+fn call_bool(name: &str) -> bool {
+    with_env(|e, a| e.call_method(a, name, "()Z", &[])?.z()).unwrap_or(false)
+}
+
+pub fn autofill_enabled() -> bool {
+    call_bool("autofillEnabled")
+}
+
+pub fn is_dark() -> bool {
+    call_bool("isDark")
+}
+
+pub fn is_autofill_request() -> bool {
+    call_bool("isAutofillRequest")
+}
+
+// ---- Java -> Rust ----
+
+#[no_mangle]
+pub extern "system" fn Java_app_passvault_Native_fill<'l>(
+    mut env: JNIEnv<'l>,
+    _class: JClass<'l>,
+    request: JString<'l>,
+) -> JString<'l> {
+    let req: String = env.get_string(&request).map(String::from).unwrap_or_default();
+    let reply = state::fill(&req);
+    env.new_string(reply).unwrap_or_else(|_| JString::from(JObject::null()))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_passvault_Native_onFile<'l>(
+    mut env: JNIEnv<'l>,
+    _class: JClass<'l>,
+    code: jint,
+    status: jint,
+    name: JString<'l>,
+    data: JByteArray<'l>,
+) {
+    let name = if name.as_raw().is_null() { None } else { env.get_string(&name).ok().map(String::from) };
+    let data = if data.as_raw().is_null() { None } else { env.convert_byte_array(&data).ok() };
+    state::push(Event::File { code, status, name, data });
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_passvault_Native_lock<'l>(_env: JNIEnv<'l>, _class: JClass<'l>) {
+    state::lock();
+}

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- No INTERNET permission, on purpose: the vault can't leave the device. -->
+    <application
+        android:name=".PvApp"
+        android:allowBackup="false"
+        android:hasCode="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PassVault">
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode|density|fontScale|navigation|layoutDirection|locale"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="passvault" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Unlock prompt shown by the autofill dropdown. It runs in its own process so its Rust runtime
+             can't collide with the main app's. -->
+        <activity
+            android:name=".AuthActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode|density|fontScale|navigation|layoutDirection|locale"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:process=":auth"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="passvault" />
+        </activity>
+
+        <service
+            android:name=".AutofillSvc"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+    </application>
+</manifest>

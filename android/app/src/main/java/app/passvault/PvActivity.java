@@ -1,0 +1,249 @@
+package app.passvault;
+
+import android.app.NativeActivity;
+import android.content.ClipData;
+import android.content.ClipDescription;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.res.Configuration;
+import android.database.Cursor;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PersistableBundle;
+import android.provider.OpenableColumns;
+import android.provider.Settings;
+import android.service.autofill.FillResponse;
+import android.view.WindowManager;
+import android.view.autofill.AutofillId;
+import android.view.autofill.AutofillManager;
+import android.widget.Toast;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+
+/**
+ * NativeActivity plus the Android calls Rust can't make on its own: document picker results,
+ * clipboard, autofill settings and returning an autofill result. Rust calls the public methods over JNI.
+ */
+public class PvActivity extends NativeActivity {
+    // Request codes, mirrored in app/src/ui.rs.
+    static final int KEY_PICK = 1;
+    static final int KEY_CREATE = 2;
+    static final int BACKUP_OUT = 3;
+    static final int BACKUP_IN = 4;
+    // Status passed to Native.onFile.
+    static final int OK = 0;
+    static final int CANCELLED = 1;
+    static final int FAILED = 2;
+
+    private static final int KEY_LIMIT = 1_000_000;
+    private static final int FILE_LIMIT = 32_000_000;
+
+    private byte[] pendingData;
+
+    @Override
+    protected void onCreate(Bundle state) {
+        // Blocks screenshots and the recent-apps thumbnail.
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
+        super.onCreate(state);
+    }
+
+    // ---- document picker ----
+
+    public void pickFile(final int code) {
+        runOnUiThread(() -> {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("*/*");
+            startActivityForResult(i, code);
+        });
+    }
+
+    public void createFile(final int code, final String name, final byte[] data) {
+        pendingData = data;
+        runOnUiThread(() -> {
+            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("application/octet-stream")
+                    .putExtra(Intent.EXTRA_TITLE, name);
+            startActivityForResult(i, code);
+        });
+    }
+
+    @Override
+    protected void onActivityResult(int code, int result, Intent data) {
+        super.onActivityResult(code, result, data);
+        if (code < KEY_PICK || code > BACKUP_IN) return;
+        byte[] out = null;
+        String name = null;
+        int status = CANCELLED;
+        if (result == RESULT_OK && data != null && data.getData() != null) {
+            Uri uri = data.getData();
+            try {
+                if (code == KEY_CREATE || code == BACKUP_OUT) {
+                    out = pendingData;
+                    if (out == null) throw new IllegalStateException("nothing to write");
+                    try (OutputStream os = getContentResolver().openOutputStream(uri)) {
+                        os.write(out);
+                    }
+                } else {
+                    out = readAll(uri, code == KEY_PICK ? KEY_LIMIT : FILE_LIMIT);
+                }
+                name = displayName(uri);
+                if (code == KEY_PICK || code == KEY_CREATE) remember(uri, code == KEY_CREATE);
+                status = OK;
+            } catch (Exception e) {
+                out = null;
+                status = FAILED;
+            }
+        }
+        pendingData = null;
+        Native.onFile(code, status, name, out);
+    }
+
+    // ---- remembered key file (the location only; the file's bytes are never stored) ----
+
+    public void restoreKeyFile() {
+        new Thread(() -> {
+            String saved = prefs().getString("kf", null);
+            if (saved == null) return;
+            try {
+                Uri uri = Uri.parse(saved);
+                byte[] bytes = readAll(uri, KEY_LIMIT);
+                Native.onFile(KEY_PICK, OK, displayName(uri), bytes);
+            } catch (Exception e) {
+                // moved, deleted or permission lost: the user chooses it again
+            }
+        }).start();
+    }
+
+    public void forgetKeyFile() {
+        prefs().edit().remove("kf").apply();
+    }
+
+    private SharedPreferences prefs() {
+        return getSharedPreferences("pv", Context.MODE_PRIVATE);
+    }
+
+    private void remember(Uri uri, boolean write) {
+        int flags = Intent.FLAG_GRANT_READ_URI_PERMISSION | (write ? Intent.FLAG_GRANT_WRITE_URI_PERMISSION : 0);
+        try {
+            getContentResolver().takePersistableUriPermission(uri, flags);
+        } catch (Exception ignored) {
+            // provider doesn't support persistable permissions
+        }
+        prefs().edit().putString("kf", uri.toString()).apply();
+    }
+
+    private byte[] readAll(Uri uri, int limit) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new IllegalStateException("cannot open");
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            byte[] chunk = new byte[8192];
+            int n;
+            while ((n = in.read(chunk)) > 0) {
+                buf.write(chunk, 0, n);
+                if (buf.size() > limit) throw new IllegalStateException("too large");
+            }
+            if (buf.size() == 0) throw new IllegalStateException("empty");
+            return buf.toByteArray();
+        }
+    }
+
+    private String displayName(Uri uri) {
+        try (Cursor c = getContentResolver().query(uri, new String[] {OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                String s = c.getString(0);
+                if (s != null) return s;
+            }
+        } catch (Exception ignored) {
+            // fall through to the path segment
+        }
+        String last = uri.getLastPathSegment();
+        return last != null ? last : "key file";
+    }
+
+    // ---- clipboard ----
+
+    /** Marks the clip as sensitive (Android 13+) and clears it after 30 seconds. */
+    public void copyToClipboard(final String text) {
+        runOnUiThread(() -> {
+            final ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText("PassVault", text);
+            if (Build.VERSION.SDK_INT >= 33) {
+                PersistableBundle extras = new PersistableBundle();
+                extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);
+                clip.getDescription().setExtras(extras);
+            }
+            cm.setPrimaryClip(clip);
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                try {
+                    ClipData cur = cm.getPrimaryClip();
+                    CharSequence now = (cur != null && cur.getItemCount() > 0) ? cur.getItemAt(0).getText() : null;
+                    if (now == null || text.contentEquals(now)) cm.clearPrimaryClip();
+                } catch (Exception ignored) {
+                    // clipboard not readable from the background on this Android version
+                }
+            }, 30_000);
+        });
+    }
+
+    // ---- settings and state read by Rust ----
+
+    public boolean autofillEnabled() {
+        AutofillManager m = getSystemService(AutofillManager.class);
+        return m != null && m.hasEnabledAutofillServices();
+    }
+
+    public void openAutofillSettings() {
+        runOnUiThread(() -> {
+            try {
+                startActivity(new Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE,
+                        Uri.parse("package:" + getPackageName())));
+            } catch (Exception e) {
+                try {
+                    startActivity(new Intent(Settings.ACTION_SETTINGS));
+                } catch (Exception ignored) {
+                    // nothing more we can do
+                }
+            }
+        });
+    }
+
+    public boolean isDark() {
+        int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        return mode == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    /** True when this activity was started by the autofill "Unlock PassVault" row. */
+    public boolean isAutofillRequest() {
+        return getIntent() != null && getIntent().hasExtra("pv_req");
+    }
+
+    // ---- autofill result ----
+
+    /** After unlocking: asks Rust which logins match, returns them to the app that requested autofill, and closes. */
+    @SuppressWarnings("deprecation")
+    public void finishWithFill() {
+        runOnUiThread(() -> {
+            Intent in = getIntent();
+            String req = in.getStringExtra("pv_req");
+            ArrayList<AutofillId> ids = in.getParcelableArrayListExtra("pv_ids");
+            FillResponse resp = (req == null || ids == null) ? null : AutofillSvc.responseFor(this, req, ids);
+            if (resp == null) {
+                Toast.makeText(this, "No saved login matches this site or app.", Toast.LENGTH_LONG).show();
+                setResult(RESULT_CANCELED);
+            } else {
+                setResult(RESULT_OK, new Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, resp));
+            }
+            finish();
+        });
+    }
+}

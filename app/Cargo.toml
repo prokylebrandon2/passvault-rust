@@ -1,0 +1,22 @@
+[package]
+name = "passvault"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[lib]
+name = "passvault"
+crate-type = ["cdylib"]
+
+[dependencies]
+passvault-core = { path = "../core" }
+slint = { version = "1.8", features = ["backend-android-activity-06"] }
+# Slint's Android backend needs exactly one activity flavour; we use NativeActivity.
+android-activity = { version = "0.6", features = ["native-activity"] }
+jni = "0.21"
+log = "0.4"
+android_logger = "0.14"
+zeroize = "1"
+
+[build-dependencies]
+slint-build = "1.8"
