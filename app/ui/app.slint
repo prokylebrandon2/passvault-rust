@@ -76,6 +76,8 @@ component PvField inherits Rectangle {
     border-radius: 8px;
     border-width: ti.has-focus ? 2px : 1px;
     border-color: ti.has-focus ? Theme.accent : Theme.outline;
+    animate border-color { duration: 150ms; easing: ease-out; }
+    animate border-width { duration: 120ms; easing: ease-out; }
     background: Theme.surface;
     TouchArea { clicked => { ti.focus(); } }
     Text {
@@ -92,7 +94,7 @@ component PvField inherits Rectangle {
         y: 26px;
         width: parent.width - 24px;
         height: parent.height - 30px;
-        font-size: root.secret ? 11px : 16px;
+        font-size: root.secret ? 8px : 16px;
         color: Theme.fg;
         single-line: !root.multiline;
         wrap: root.multiline ? TextWrap.word-wrap : TextWrap.no-wrap;
