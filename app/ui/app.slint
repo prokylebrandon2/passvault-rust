@@ -564,7 +564,7 @@ export component MainWindow inherits Window {
                             padding-right: 4px;
                             spacing: 4px;
                             Text { text: "Autofill is off. Turn it on to fill logins in other apps."; wrap: word-wrap; font-size: 14px; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; }
-                            PvLink { text: "Turn on"; clicked => { root.enable-autofill(); } }
+                            VerticalLayout { alignment: center; PvLink { text: "Turn on"; clicked => { root.enable-autofill(); } } }
                         }
                     }
                 }
@@ -821,7 +821,7 @@ export component MainWindow inherits Window {
                                 vertical-alignment: center;
                                 horizontal-stretch: 1;
                             }
-                            if !root.autofill-on : PvLink { text: "Turn on"; clicked => { root.enable-autofill(); } }
+                            if !root.autofill-on : VerticalLayout { alignment: center; PvLink { text: "Turn on"; clicked => { root.enable-autofill(); } } }
                         }
                     }
 
