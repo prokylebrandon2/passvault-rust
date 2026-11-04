@@ -71,6 +71,13 @@ pub fn forget_key_file() {
     with_env(|e, a| e.call_method(a, "forgetKeyFile", "()V", &[]).map(|_| ()));
 }
 
+pub fn auto_backup(data: &[u8]) {
+    with_env(|e, a| {
+        let d: JObject = e.byte_array_from_slice(data)?.into();
+        e.call_method(a, "autoBackup", "([B)V", &[JValue::Object(&d)]).map(|_| ())
+    });
+}
+
 pub fn finish_with_fill() {
     with_env(|e, a| e.call_method(a, "finishWithFill", "()V", &[]).map(|_| ()));
 }

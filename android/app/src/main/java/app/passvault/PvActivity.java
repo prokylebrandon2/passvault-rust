@@ -114,6 +114,7 @@ public class PvActivity extends NativeActivity {
                 }
                 name = displayName(uri);
                 if (code == KEY_PICK || code == KEY_CREATE) remember(uri, code == KEY_CREATE);
+                if (code == BACKUP_OUT || code == BACKUP_IN) rememberBackup(uri);
                 status = OK;
             } catch (Exception e) {
                 out = null;
@@ -156,6 +157,34 @@ public class PvActivity extends NativeActivity {
             // provider doesn't support persistable permissions
         }
         prefs().edit().putString("kf", uri.toString()).apply();
+    }
+
+    // ---- automatic backup: the encrypted vault file is copied to the file chosen with Backup or Restore ----
+
+    private static final java.util.concurrent.ExecutorService BACKUP_POOL = java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    private void rememberBackup(Uri uri) {
+        try {
+            getContentResolver().takePersistableUriPermission(uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            prefs().edit().putString("bk", uri.toString()).apply();
+        } catch (Exception e) {
+            // no write access to that location: no automatic backup
+            prefs().edit().remove("bk").apply();
+        }
+    }
+
+    public void autoBackup(final byte[] data) {
+        final String saved = prefs().getString("bk", null);
+        if (saved == null || data == null || data.length == 0) return;
+        BACKUP_POOL.execute(() -> {
+            try (OutputStream os = getContentResolver().openOutputStream(Uri.parse(saved), "wt")) {
+                if (os == null) throw new IllegalStateException("cannot open");
+                os.write(data);
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this, "Automatic backup failed. Use Backup to choose the file again.", Toast.LENGTH_LONG).show());
+            }
+        });
     }
 
     private byte[] readAll(Uri uri, int limit) throws Exception {

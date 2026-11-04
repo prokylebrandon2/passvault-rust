@@ -224,6 +224,7 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
             notes: ui.get_f_notes().to_string(),
         };
         let result = state::session().upsert(entry);
+        if result.is_ok() { auto_backup(); }
         match result {
             Ok(()) => {
                 c.editing = None;
@@ -237,6 +238,7 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
     handler!(ui, ctl, on_delete_login, |ui, c| {
         if let Some(id) = c.editing.take() {
             let result = state::session().remove(&id);
+            if result.is_ok() { auto_backup(); }
             match result {
                 Ok(()) => {}
                 Err(Error::Locked) => {
@@ -330,6 +332,7 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
         }
         let entry = Entry { id: new_id(), title: name, otp: secret, ..Default::default() };
         let result = state::session().upsert(entry);
+        if result.is_ok() { auto_backup(); }
         match result {
             Ok(()) => {
                 clear_auth(&ui, &mut c);
@@ -403,6 +406,14 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
             bridge::create_file(code, name, &bytes);
             bytes.zeroize();
         });
+    }
+}
+
+/// Copies the encrypted vault file to the file chosen with Backup or Restore, if there is one.
+fn auto_backup() {
+    let bytes = state::session().read_file();
+    if let Ok(b) = bytes {
+        bridge::auto_backup(&b);
     }
 }
 
@@ -535,7 +546,7 @@ fn handle_event(ui: &MainWindow, c: &mut Ctl, ev: Event) {
                 }
             }
             (KEY_PICK | KEY_CREATE, 2) => ui.set_error("Couldn't read that key file. Choose it again.".into()),
-            (BACKUP_OUT, 0) => ui.set_notice("Backup saved.".into()),
+            (BACKUP_OUT, 0) => ui.set_notice("Backup saved. This file now updates after every change.".into()),
             (BACKUP_OUT, 2) => ui.set_error("Couldn't save the backup. Pick a different location.".into()),
             (BACKUP_IN, 0) => {
                 if let Some(d) = data {
@@ -803,6 +814,7 @@ fn clear_auth(ui: &MainWindow, c: &mut Ctl) {
 
 fn finish_import(ui: &MainWindow, c: &mut Ctl, imp: transfer::Imported) {
     let result = state::session().merge_entries(imp.entries);
+    if result.is_ok() { auto_backup(); }
     match result {
         Ok((added, dups)) => {
             refresh_rows(ui, &ui.get_query());
