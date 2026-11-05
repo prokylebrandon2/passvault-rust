@@ -371,7 +371,7 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
     handler!(ui, ctl, on_gen_copy, |ui, _c| {
         state::touch();
         bridge::copy(&ui.get_gen_preview());
-        ui.set_notice("Copied. It is cleared from the clipboard after 30 seconds.".into());
+        ui.set_notice("Copied. It is cleared from the clipboard after 5 minutes.".into());
     });
 
     // ---- Proton Pass import and export ----
