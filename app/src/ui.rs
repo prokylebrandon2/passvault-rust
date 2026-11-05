@@ -88,6 +88,7 @@ pub fn run(dir: PathBuf) {
     }
     ui.global::<Theme>().set_dark(bridge::is_dark());
     ui.set_autofill_on(bridge::autofill_enabled());
+    ui.set_app_version(bridge::app_version().into());
     bridge::restore_key_file();
     wire(&ui, &ctl);
     let timer = slint::Timer::default();
@@ -371,7 +372,7 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
     handler!(ui, ctl, on_gen_copy, |ui, _c| {
         state::touch();
         bridge::copy(&ui.get_gen_preview());
-        ui.set_notice("Copied. It is cleared from the clipboard after 30 seconds.".into());
+        ui.set_notice("Copied. It is cleared from the clipboard after 5 minutes.".into());
     });
 
     // ---- Proton Pass import and export ----

@@ -12,7 +12,8 @@ android {
         // 34 keeps the classic window layout, so the Slint UI isn't drawn under the status bar.
         targetSdk = 34
         versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
-        versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
+        versionName = System.getenv("VERSION_NAME") ?: "1.0.0"
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     // Release signing comes from env vars set by the GitHub workflow; without them the release is unsigned.
@@ -40,6 +41,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    packaging { jniLibs { useLegacyPackaging = true } }
+    dependenciesInfo { includeInApk = false; includeInBundle = false }
     lint { checkReleaseBuilds = false; abortOnError = false }
 }
 

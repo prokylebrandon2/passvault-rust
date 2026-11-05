@@ -168,6 +168,7 @@ component PvBanner inherits Rectangle {
     in property <string> notice: "";
     property <string> msg: root.error != "" ? root.error : root.notice;
     property <bool> open: root.msg != "";
+    out property <length> wanted: root.open ? txt.preferred-height + 24px : 0px;
     property <string> kept: "";
     property <bool> kept-error: false;
     changed msg => {
@@ -176,7 +177,7 @@ component PvBanner inherits Rectangle {
             root.kept-error = root.error != "";
         }
     }
-    height: root.open ? txt.preferred-height + 24px : 0px;
+    height: root.wanted;
     clip: true;
     border-radius: 14px;
     background: root.kept-error ? Theme.danger-soft : Theme.accent-soft;
@@ -269,22 +270,29 @@ component PvPill inherits Rectangle {
     in property <string> text;
     in property <int> icon: -1;
     callback clicked();
-    property <length> lead: root.icon >= 0 ? 38px : 16px;
+    property <length> w: root.icon >= 0 ? 68px : 60px;
+    property <length> icon-w: root.icon >= 0 ? 20px : 0px;
+    property <length> gap: root.icon >= 0 ? 2px : 0px;
+    // Centers icon + label in the fixed width; the 2px shift offsets the icon's own empty margin.
+    property <length> start: (root.w - root.icon-w - root.gap - lbl.preferred-width) / 2 - (root.icon >= 0 ? 2px : 0px);
     height: 40px;
     border-radius: 20px;
-    preferred-width: lbl.preferred-width + root.lead + 18px;
-    min-width: lbl.preferred-width + root.lead + 18px;
+    preferred-width: root.w;
+    min-width: root.w;
+    max-width: root.w;
     background: touch.pressed ? Theme.accent : Theme.accent-soft;
     animate background { duration: 140ms; easing: ease-out; }
     touch := TouchArea { clicked => { root.clicked(); } }
     if root.icon >= 0 : PvIcon {
-        x: 12px;
-        y: 8px;
+        x: root.start;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
         kind: root.icon;
         tint: touch.pressed ? Theme.on-accent : Theme.accent;
     }
     lbl := Text {
-        x: root.lead;
+        x: root.start + root.icon-w + root.gap;
         y: 0px;
         height: parent.height;
         text: root.text;
@@ -835,6 +843,7 @@ export component MainWindow inherits Window {
     in property <bool> creating: false;
     in property <bool> busy: false;
     in property <bool> autofill-on: true;
+    in property <string> app-version: "";
     in property <bool> is-new: true;
     in property <string> error: "";
     in property <string> notice: "";
@@ -920,7 +929,8 @@ export component MainWindow inherits Window {
     // The scrolling forms are fixed-height columns inside a Flickable: grow them for the parts that come and go.
     property <length> form-height: 700px + (root.otp-code != "" ? 140px : 0px) + (root.otp-invalid ? 46px : 0px) + (root.error != "" ? 64px : 0px);
     property <length> auth-height: 560px + (root.a-code != "" ? 140px : 0px) + (root.a-invalid ? 46px : 0px) + (root.error != "" ? 64px : 0px);
-    property <length> more-height: 740px + (root.export-ask != 0 ? 212px : 0px) + (root.bio-available ? 112px : 0px) + ((root.error != "" || root.notice != "") ? 70px : 0px);
+    property <length> gen-height: 868px + gen-banner.wanted;
+    property <length> more-height: 662px + (root.export-ask != 0 ? 200px : 0px) + (root.bio-available ? 106px : 0px) + more-banner.wanted;
 
     // A fresh generated password flashes in.
     property <bool> preview-dim: false;
@@ -1069,7 +1079,13 @@ export component MainWindow inherits Window {
                                 padding-left: 16px;
                                 padding-right: 6px;
                                 spacing: 4px;
-                                Text { text: "Autofill is off. Turn it on to fill logins in other apps."; wrap: word-wrap; font-size: 14px; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 2px;
+                                    Text { text: "Autofill is off"; font-size: 15px; font-weight: 700; color: Theme.fg; overflow: elide; }
+                                    Text { text: "Turn it on to fill logins in other apps."; font-size: 12px; color: Theme.muted; overflow: elide; }
+                                }
                                 VerticalLayout { alignment: center; PvLink { text: "Turn on"; clicked => { root.enable-autofill(); } } }
                             }
                         }
@@ -1281,10 +1297,10 @@ export component MainWindow inherits Window {
                 Flickable {
                     width: parent.width;
                     height: parent.height;
-                    content-height: 1000px + root.safe-area-insets.top;
+                    content-height: root.gen-height + root.safe-area-insets.top;
                     VerticalLayout {
                         width: root.width;
-                        height: 1000px + root.safe-area-insets.top;
+                        height: root.gen-height + root.safe-area-insets.top;
                         alignment: start;
                         padding: 18px;
                         padding-top: 22px + root.safe-area-insets.top;
@@ -1321,7 +1337,7 @@ export component MainWindow inherits Window {
                             PvButton { text: "New password"; primary: true; clicked => { root.gen-regenerate(); } }
                             PvButton { text: "Copy"; clicked => { root.gen-copy(); } }
                         }
-                        PvBanner { error: root.error; notice: root.notice; }
+                        gen-banner := PvBanner { error: root.error; notice: root.notice; }
                         HorizontalLayout {
                             padding-left: 4px;
                             padding-right: 4px;
@@ -1399,7 +1415,7 @@ export component MainWindow inherits Window {
                         padding-top: 22px + root.safe-area-insets.top;
                         spacing: 12px;
                         Text { text: "More"; font-size: 30px; font-weight: 800; color: Theme.fg; height: 40px; }
-                        PvBanner { error: root.error; notice: root.notice; }
+                        more-banner := PvBanner { error: root.error; notice: root.notice; }
 
                         SectionLabel { text: "AUTOFILL"; }
                         Rectangle {
@@ -1496,6 +1512,7 @@ export component MainWindow inherits Window {
                         SectionLabel { text: "VAULT"; }
                         PvButton { text: "Back up vault (encrypted)"; clicked => { root.backup(); } }
                         PvButton { text: "Lock now"; clicked => { root.lock(); } }
+                        Text { text: root.app-version == "" ? "" : "PassVault \{root.app-version}"; font-size: 12px; color: Theme.muted; horizontal-alignment: center; }
                     }
                 }
             }

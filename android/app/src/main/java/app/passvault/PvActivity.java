@@ -217,7 +217,7 @@ public class PvActivity extends NativeActivity {
 
     // ---- clipboard ----
 
-    /** Marks the clip as sensitive (Android 13+) and clears it after 30 seconds. */
+    /** Marks the clip as sensitive (Android 13+) and clears it after 5 minutes. */
     public void copyToClipboard(final String text) {
         runOnUiThread(() -> {
             final ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
@@ -236,7 +236,7 @@ public class PvActivity extends NativeActivity {
                 } catch (Exception ignored) {
                     // clipboard not readable from the background on this Android version
                 }
-            }, 30_000);
+            }, 300_000);
         });
     }
 
@@ -260,6 +260,16 @@ public class PvActivity extends NativeActivity {
                 }
             }
         });
+    }
+
+    /** The version name from the build, for example 1.0.0. */
+    public String appVersion() {
+        try {
+            String v = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return v == null ? "" : v;
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     public boolean isDark() {

@@ -98,6 +98,15 @@ pub fn is_dark() -> bool {
     call_bool("isDark")
 }
 
+pub fn app_version() -> String {
+    with_env(|e, a| {
+        let v = e.call_method(a, "appVersion", "()Ljava/lang/String;", &[])?.l()?;
+        let s: String = e.get_string(&JString::from(v))?.into();
+        Ok(s)
+    })
+    .unwrap_or_default()
+}
+
 pub fn is_autofill_request() -> bool {
     call_bool("isAutofillRequest")
 }
