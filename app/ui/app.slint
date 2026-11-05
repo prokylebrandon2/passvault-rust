@@ -168,6 +168,7 @@ component PvBanner inherits Rectangle {
     in property <string> notice: "";
     property <string> msg: root.error != "" ? root.error : root.notice;
     property <bool> open: root.msg != "";
+    out property <length> wanted: root.open ? txt.preferred-height + 24px : 0px;
     property <string> kept: "";
     property <bool> kept-error: false;
     changed msg => {
@@ -176,7 +177,7 @@ component PvBanner inherits Rectangle {
             root.kept-error = root.error != "";
         }
     }
-    height: root.open ? txt.preferred-height + 24px : 0px;
+    height: root.wanted;
     clip: true;
     border-radius: 14px;
     background: root.kept-error ? Theme.danger-soft : Theme.accent-soft;
@@ -921,7 +922,8 @@ export component MainWindow inherits Window {
     // The scrolling forms are fixed-height columns inside a Flickable: grow them for the parts that come and go.
     property <length> form-height: 700px + (root.otp-code != "" ? 140px : 0px) + (root.otp-invalid ? 46px : 0px) + (root.error != "" ? 64px : 0px);
     property <length> auth-height: 560px + (root.a-code != "" ? 140px : 0px) + (root.a-invalid ? 46px : 0px) + (root.error != "" ? 64px : 0px);
-    property <length> more-height: 740px + (root.export-ask != 0 ? 212px : 0px) + (root.bio-available ? 112px : 0px) + ((root.error != "" || root.notice != "") ? 70px : 0px);
+    property <length> gen-height: 868px + gen-banner.wanted;
+    property <length> more-height: 636px + (root.export-ask != 0 ? 200px : 0px) + (root.bio-available ? 106px : 0px) + more-banner.wanted;
 
     // A fresh generated password flashes in.
     property <bool> preview-dim: false;
@@ -1282,10 +1284,10 @@ export component MainWindow inherits Window {
                 Flickable {
                     width: parent.width;
                     height: parent.height;
-                    content-height: 1000px + root.safe-area-insets.top;
+                    content-height: root.gen-height + root.safe-area-insets.top;
                     VerticalLayout {
                         width: root.width;
-                        height: 1000px + root.safe-area-insets.top;
+                        height: root.gen-height + root.safe-area-insets.top;
                         alignment: start;
                         padding: 18px;
                         padding-top: 22px + root.safe-area-insets.top;
@@ -1322,7 +1324,7 @@ export component MainWindow inherits Window {
                             PvButton { text: "New password"; primary: true; clicked => { root.gen-regenerate(); } }
                             PvButton { text: "Copy"; clicked => { root.gen-copy(); } }
                         }
-                        PvBanner { error: root.error; notice: root.notice; }
+                        gen-banner := PvBanner { error: root.error; notice: root.notice; }
                         HorizontalLayout {
                             padding-left: 4px;
                             padding-right: 4px;
@@ -1400,7 +1402,7 @@ export component MainWindow inherits Window {
                         padding-top: 22px + root.safe-area-insets.top;
                         spacing: 12px;
                         Text { text: "More"; font-size: 30px; font-weight: 800; color: Theme.fg; height: 40px; }
-                        PvBanner { error: root.error; notice: root.notice; }
+                        more-banner := PvBanner { error: root.error; notice: root.notice; }
 
                         SectionLabel { text: "AUTOFILL"; }
                         Rectangle {
