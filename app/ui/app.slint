@@ -1065,15 +1065,22 @@ export component MainWindow inherits Window {
                         padding-left: 16px;
                         padding-right: 16px;
                         Rectangle {
-                            height: 68px;
+                            height: 72px;
                             background: Theme.accent-soft;
                             border-radius: 16px;
-                            HorizontalLayout {
-                                padding-left: 16px;
-                                padding-right: 6px;
-                                spacing: 4px;
-                                Text { text: "Autofill is off. Turn it on to fill logins in other apps."; wrap: word-wrap; font-size: 14px; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; }
-                                VerticalLayout { alignment: center; PvLink { text: "Turn on"; clicked => { root.enable-autofill(); } } }
+                            VerticalLayout {
+                                alignment: center;
+                                HorizontalLayout {
+                                    padding-left: 16px;
+                                    padding-right: 6px;
+                                    Text { text: "Autofill is off"; font-size: 15px; font-weight: 700; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                    PvLink { text: "Turn on"; clicked => { root.enable-autofill(); } }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 16px;
+                                    padding-right: 16px;
+                                    Text { text: "Turn it on to fill logins in other apps."; font-size: 13px; color: Theme.muted; overflow: elide; }
+                                }
                             }
                         }
                     }
