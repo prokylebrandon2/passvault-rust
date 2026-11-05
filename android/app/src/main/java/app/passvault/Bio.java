@@ -22,7 +22,7 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** Wraps the vault key with a Keystore key that needs a strong biometric for every use. Everything is gated by available(). */
+/** Wraps the vault key with a Keystore key that needs a strong biometric (or the phone lock screen credential on Android 11+) for every use. Everything is gated by available(). */
 @SuppressLint("NewApi")
 final class Bio {
     // Shared with ui.rs.
@@ -72,7 +72,7 @@ final class Bio {
                 .setUserAuthenticationRequired(true) // per-use auth: no validity window
                 .setInvalidatedByBiometricEnrollment(true);
         if (Build.VERSION.SDK_INT >= 30) {
-            b.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG);
+            b.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG | KeyProperties.AUTH_DEVICE_CREDENTIAL);
         }
         KeyGenerator g = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
         g.init(b.build());
@@ -85,11 +85,12 @@ final class Bio {
     }
 
     private void auth(Cipher cipher, String title, Done d) {
-        BiometricPrompt.Builder b = new BiometricPrompt.Builder(act)
-                .setTitle(title)
-                .setNegativeButton("Use master password", act.getMainExecutor(), (dlg, which) -> d.end(CANCELLED));
+        BiometricPrompt.Builder b = new BiometricPrompt.Builder(act).setTitle(title);
         if (Build.VERSION.SDK_INT >= 30) {
-            b.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG);
+            // Fingerprint, or the phone's lock screen PIN, pattern or password. Back out of the prompt to use the master password.
+            b.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL);
+        } else {
+            b.setNegativeButton("Use master password", act.getMainExecutor(), (dlg, which) -> d.end(CANCELLED));
         }
         b.build().authenticate(new BiometricPrompt.CryptoObject(cipher), new CancellationSignal(),
                 act.getMainExecutor(), new BiometricPrompt.AuthenticationCallback() {
