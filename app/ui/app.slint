@@ -269,16 +269,17 @@ component PvPill inherits Rectangle {
     in property <string> text;
     in property <int> icon: -1;
     callback clicked();
-    property <length> lead: root.icon >= 0 ? 38px : 16px;
+    property <length> lead: root.icon >= 0 ? 36px : 16px;
+    property <length> trail: root.icon >= 0 ? 14px : 16px;
     height: 40px;
     border-radius: 20px;
-    preferred-width: lbl.preferred-width + root.lead + 18px;
-    min-width: lbl.preferred-width + root.lead + 18px;
+    preferred-width: lbl.preferred-width + root.lead + root.trail;
+    min-width: lbl.preferred-width + root.lead + root.trail;
     background: touch.pressed ? Theme.accent : Theme.accent-soft;
     animate background { duration: 140ms; easing: ease-out; }
     touch := TouchArea { clicked => { root.clicked(); } }
     if root.icon >= 0 : PvIcon {
-        x: 12px;
+        x: 9px;
         y: 8px;
         kind: root.icon;
         tint: touch.pressed ? Theme.on-accent : Theme.accent;
