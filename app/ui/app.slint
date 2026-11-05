@@ -28,7 +28,7 @@ export global Theme {
 // 0 key, 1 clock, 2 sliders, 3 menu, 4 plus, 5 search, 6 shield, 7 chevron, 8 minus
 component PvIcon inherits Rectangle {
     in property <int> kind: 0;
-    in property <color> tint: Theme.fg;
+    in-out property <color> tint: Theme.fg;
     in property <length> thickness: 2px;
     width: 24px;
     height: 24px;
