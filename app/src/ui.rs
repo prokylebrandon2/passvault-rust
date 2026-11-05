@@ -88,6 +88,7 @@ pub fn run(dir: PathBuf) {
     }
     ui.global::<Theme>().set_dark(bridge::is_dark());
     ui.set_autofill_on(bridge::autofill_enabled());
+    ui.set_app_version(bridge::app_version().into());
     bridge::restore_key_file();
     wire(&ui, &ctl);
     let timer = slint::Timer::default();

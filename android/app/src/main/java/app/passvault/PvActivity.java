@@ -262,6 +262,16 @@ public class PvActivity extends NativeActivity {
         });
     }
 
+    /** The version name from the build, for example 1.0.0. */
+    public String appVersion() {
+        try {
+            String v = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return v == null ? "" : v;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     public boolean isDark() {
         int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         return mode == Configuration.UI_MODE_NIGHT_YES;

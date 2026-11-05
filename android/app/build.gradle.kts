@@ -12,7 +12,7 @@ android {
         // 34 keeps the classic window layout, so the Slint UI isn't drawn under the status bar.
         targetSdk = 34
         versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
-        versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
+        versionName = System.getenv("VERSION_NAME") ?: "1.0.0"
         ndk { abiFilters += "arm64-v8a" }
     }
 
