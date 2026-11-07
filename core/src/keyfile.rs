@@ -30,10 +30,12 @@ const LOGIN_LIMIT: usize = 16 * 1024;
 
 /// The saved cloud sign-in. The refresh token lets the app get new Firebase access tokens without asking for the password.
 #[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
-#[serde(default)]
 pub struct Login {
+    #[serde(default)]
     pub email: String,
+    #[serde(default)]
     pub uid: String,
+    #[serde(default)]
     pub refresh_token: String,
 }
 
