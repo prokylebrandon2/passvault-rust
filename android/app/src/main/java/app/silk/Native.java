@@ -1,0 +1,21 @@
+package app.silk;
+
+/** JNI entry points implemented in Rust (libsilk.so). */
+public final class Native {
+    static {
+        System.loadLibrary("silk");
+    }
+
+    private Native() {}
+
+    /** Autofill: a flattened description of the form in, a JSON decision out. */
+    public static native String fill(String requestJson);
+
+    /** Result of a document-picker request. status: 0 ok, 1 cancelled, 2 failed. data/name are null unless ok. */
+    public static native void onFile(int code, int status, String name, byte[] data);
+
+    /** Wipes the unlocked vault from memory. */
+    public static native void lock();
+
+    static native void onBio(int op, int status, byte[] key);
+}

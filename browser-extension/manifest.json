@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "PassVault",
+  "name": "Silk",
   "version": "0.1.0",
-  "description": "Fill logins and one-time codes from your PassVault backup. Works offline: nothing leaves your browser.",
+  "description": "Fill logins and one-time codes from your Silk backup. Works offline: nothing leaves your browser.",
   "action": {
-    "default_title": "PassVault",
+    "default_title": "Silk",
     "default_popup": "popup.html",
     "default_icon": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png" }
   },
@@ -14,7 +14,7 @@
   "commands": {
     "_execute_action": {
       "suggested_key": { "default": "Ctrl+Shift+L", "mac": "Command+Shift+L" },
-      "description": "Open PassVault"
+      "description": "Open Silk"
     }
   },
   "content_security_policy": {

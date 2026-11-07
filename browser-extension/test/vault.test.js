@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { openVault, parseHeader } from '../src/vault.js';
-import { sealVault } from './helpers.js';
+import { sealVault, sealBundle } from './helpers.js';
 import { parseOtp, totpCode, secondsLeft, groupCode } from '../src/totp.js';
 import { urlMatches, hostOf } from '../src/match.js';
 
@@ -34,6 +34,51 @@ test('rejects tampering and non-vault files', async () => {
   assert.throws(() => parseHeader(new TextEncoder().encode('not a vault file at all, no no no no no no no no no')), { code: 'not-a-vault' });
   const absurd = v.slice();
   new DataView(absurd.buffer).setUint32(10, 0xffffffff);
+  assert.throws(() => parseHeader(absurd), { code: 'corrupt' });
+});
+
+test('opens a Silk backup (key slot + vault file) with and without a key file', async () => {
+  const kf = new Uint8Array(64).fill(7);
+  const withKf = await sealBundle([entry], 'correct horse', kf);
+  assert.equal(parseHeader(withKf).kind, 'silk');
+  assert.equal(parseHeader(withKf).keyFile, true);
+  const back = await openVault(withKf, 'correct horse', kf);
+  assert.equal(back.length, 1);
+  assert.equal(back[0].title, 'GitHub');
+  assert.equal(back[0].otp, 'JBSWY3DPEHPK3PXP');
+  await assert.rejects(openVault(withKf, 'wrong', kf), { code: 'wrong-credentials' });
+  await assert.rejects(openVault(withKf, 'correct horse', new Uint8Array(64)), { code: 'wrong-credentials' });
+  await assert.rejects(openVault(withKf, 'correct horse', null), { code: 'key-file-required' });
+
+  const plain = await sealBundle([entry], 'password1', null);
+  assert.equal(parseHeader(plain).keyFile, false);
+  assert.equal((await openVault(plain, 'password1', null)).length, 1);
+  await assert.rejects(openVault(plain, 'password1', kf), { code: 'key-file-not-used' });
+  // Old .pvlt files keep working next to the new kind.
+  assert.equal(parseHeader(await sealVault([entry], 'password1', null)).kind, 'legacy');
+});
+
+test('rejects a tampered or truncated Silk backup', async () => {
+  const b = await sealBundle([entry], 'password1', null);
+  const SLOT_END = 5 + 91;
+  const slot = b.slice();
+  slot[5 + 20] ^= 1; // a salt byte: the key slot header is authenticated
+  await assert.rejects(openVault(slot, 'password1', null), { code: 'wrong-credentials' });
+  const wrapped = b.slice();
+  wrapped[SLOT_END - 1] ^= 1; // the wrapped VEK
+  await assert.rejects(openVault(wrapped, 'password1', null), { code: 'wrong-credentials' });
+  const vault = b.slice();
+  vault[vault.length - 1] ^= 1; // the vault file body: the password is right, the file was changed
+  await assert.rejects(openVault(vault, 'password1', null), { code: 'corrupt' });
+  const revision = b.slice();
+  revision[SLOT_END + 13] ^= 1; // the revision is authenticated too
+  await assert.rejects(openVault(revision, 'password1', null), { code: 'corrupt' });
+  assert.throws(() => parseHeader(b.slice(0, 60)), { code: 'not-a-vault' });
+  const wrongVersion = b.slice();
+  wrongVersion[4] = 9;
+  assert.throws(() => parseHeader(wrongVersion), { code: 'not-a-vault' });
+  const absurd = b.slice();
+  new DataView(absurd.buffer).setUint32(5 + 10, 0xffffffff);
   assert.throws(() => parseHeader(absurd), { code: 'corrupt' });
 });
 

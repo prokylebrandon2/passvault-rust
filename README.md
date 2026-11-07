@@ -1,4 +1,6 @@
-# PassVault
+# Silk
+
+> Silk was called PassVault. The rename is complete: crates, library, Android package and application ID (`app.silk`), classes, docs. Only the old `.pvlt` file format keeps its `PVLT` magic, because old vaults and backups must still open. **Because the application ID changed, Android treats Silk as a new app:** to bring an old PassVault vault over, back it up in the old app, install Silk and use **Restore from backup** on its first screen. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 An offline Android password manager written in Rust: master password + optional key file, system autofill and TOTP codes. No network permission.
 
@@ -6,25 +8,27 @@ An offline Android password manager written in Rust: master password + optional 
 
 | Part | Language | What it does |
 |---|---|---|
-| `core/` | Rust | Vault format, Argon2id, AES-256-GCM, key file, TOTP, autofill field detection and matching, session and idle lock. No Android code, fully unit-tested on a normal machine. |
-| `app/` | Rust | The UI (Slint) and the JNI bridge. Builds to `libpassvault.so`. |
+| `core/` | Rust (`silk-core`) | Key slot and vault format, Argon2id, AES-256-GCM, key file, TOTP, autofill field detection and matching, session and idle lock. No Android code, fully unit-tested on a normal machine. |
+| `app/` | Rust | The UI (Slint) and the JNI bridge. Builds to `libsilk.so`. |
 | `browser-extension/` | JavaScript | A Brave/Chrome extension (Manifest V3) that opens a copy of your vault, fills logins and shows one-time codes. See below. |
 | `android/` | Java (about 450 lines, mostly comments and boilerplate) | The part Android makes mandatory: the `AutofillService` class, the document-picker result callback, clipboard, and handing an autofill result back. It holds no logic; it passes strings and bytes to Rust. |
 
 ## How the vault is protected
 
-- Master password (and key file, if used) are hashed with SHA-256 and stretched with **Argon2id** (t=3, 64 MiB, p=4) into a 256-bit key.
-- The vault is one file encrypted with **AES-256-GCM**. Every save uses a fresh random nonce, and the header (KDF settings and salt) is authenticated.
+- Master password (and key file, if used) are hashed with SHA-256 and stretched with **Argon2id** (t=3, 64 MiB, p=4) into a 256-bit key. That key only wraps a random 256-bit **VEK** (vault encryption key), stored in a small **key slot** next to the vault.
+- The vault file is encrypted with the VEK using **AES-256-GCM**. Every save uses a fresh random nonce, and the headers (KDF settings, salt, revision) are authenticated. Changing the master password only re-wraps the VEK; the vault file isn't touched.
+- Each save raises an authenticated revision number and the device remembers the highest one it has seen, so an older copy of the vault file is refused.
+- Vaults from earlier versions (`vault.pvlt`) are converted automatically the first time they are unlocked with the password.
 - A **key file** is any file you pick, or a random 64-byte one the app creates. It is mixed into the key, so the vault can't be opened without it. Keep a copy somewhere other than this phone. Lose the password or the key file and the vault is gone. The app remembers where the key file is, never its contents.
-- Data stays in app-private storage. `allowBackup=false`, screenshots are blocked, the clipboard is flagged sensitive and cleared after 30 s. Keys and entries are zeroized when the vault locks.
+- Data stays in app-private storage. `allowBackup=false`, screenshots are blocked, the clipboard is flagged sensitive and cleared after 5 minutes. Keys and entries are zeroized when the vault locks.
 - The vault locks after 5 idle minutes, when the screen turns off and when you leave the app with Back. Tune the KDF in `core/src/vault.rs` (`Kdf::default`) and the idle time in `core/src/session.rs`.
-- **Back up** (list screen) saves the still-encrypted vault file. **Restore from backup** is on the create screen.
+- **Back up** (list screen) saves the still-encrypted key slot and vault file as one `.silk` file, and keeps that file up to date after every change. **Restore from backup** is on the create screen; it also accepts old `.pvlt` backups.
 
 ## Autofill
 
-Tap **Turn on** in the app (or Settings > Passwords & autofill > Autofill service > PassVault). In Chrome also enable Settings > Autofill services > Autofill using another service.
+Tap **Turn on** in the app (or Settings > Passwords & autofill > Autofill service > Silk). In Chrome also enable Settings > Autofill services > Autofill using another service.
 
-A login is offered when its **Website or app** field matches the page: `https://example.com` for sites (subdomains match) or `androidapp://com.example.app` for apps. If the vault is locked the dropdown shows "Unlock PassVault", which opens a small unlock screen and returns the login to the app you were in.
+A login is offered when its **Website or app** field matches the page: `https://example.com` for sites (subdomains match) or `androidapp://com.example.app` for apps. If the vault is locked the dropdown shows "Unlock Silk", which opens a small unlock screen and returns the login to the app you were in.
 
 ## Screens
 
@@ -50,23 +54,27 @@ The JSON layout is reconstructed from Proton's documented export format, not fro
 
 `browser-extension/` is a Manifest V3 extension for Brave (and any Chromium browser). It is a read-only copy of your phone's vault:
 
-1. In the app: **More > Back up vault**, move the `.pvlt` file to your computer.
-2. Brave: `brave://extensions`, turn on Developer mode, **Load unpacked**, pick the `browser-extension` folder (or unzip the `passvault-brave-extension` artifact from CI).
-3. Click the extension, choose the `.pvlt` file, enter the master password (and the key file if the vault uses one).
+1. In the app: **More > Back up vault**, move the `.silk` file to your computer.
+2. Brave: `brave://extensions`, turn on Developer mode, **Load unpacked**, pick the `browser-extension` folder (or unzip the `silk-brave-extension` artifact from CI).
+3. Click the extension, choose the `.silk` file (an old `.pvlt` backup works too), enter the master password (and the key file if the vault uses one).
 
-It opens the same file format (Argon2id + AES-256-GCM, with its own Argon2 in JavaScript; unlocking takes a few seconds), suggests logins for the current site, fills username and password into the page you are on when you click **Fill**, fills or copies one-time codes, and locks after 5 idle minutes. It asks before filling a login on a site that doesn't match the login's address. Permissions are only `storage`, `alarms`, `activeTab` and `scripting`: it can touch a page only when you click Fill. The encrypted file is kept in the extension's local storage; decrypted logins live in session storage, which the browser never writes to disk. It never edits the vault: to update the copy, back up again in the app and re-add the file. It does not clear the clipboard for you, and JavaScript can't reliably wipe memory.
+It opens the same backup format (Argon2id unwraps the VEK, AES-256-GCM decrypts the vault, with its own Argon2 in JavaScript; unlocking takes a few seconds), suggests logins for the current site, fills username and password into the page you are on when you click **Fill**, fills or copies one-time codes, and locks after 5 idle minutes. It asks before filling a login on a site that doesn't match the login's address. Permissions are only `storage`, `alarms`, `activeTab` and `scripting`: it can touch a page only when you click Fill. The encrypted file is kept in the extension's local storage; decrypted logins live in session storage, which the browser never writes to disk. It never edits the vault: to update the copy, back up again in the app and re-add the file. It does not clear the clipboard for you, and JavaScript can't reliably wipe memory.
 
-`cd browser-extension && npm test` runs the tests (Argon2 against the RFC 9106 vectors, vault opening, RFC 6238 codes, site matching). Needs Node 18 or newer.
+`cd browser-extension && npm test` runs the tests (Argon2 against the RFC 9106 vectors, opening backups and old vault files, RFC 6238 codes, site matching). Needs Node 18 or newer.
+
+## Cloud architecture: the VEK, Kiln and Firebase (in progress)
+
+The vault uses envelope encryption with Firebase planned as untrusted storage: the master password goes through Argon2id to a key that only wraps a random **VEK**; the VEK encrypts the vault archive. That archive will be Kiln's `.skln` (Kiln is a separate project and `.skln` is not in it yet), so `core/src/interim.rs` stands in behind the `Archiver` trait until it is. The app already runs on this design over the local copy (`core/src/local.rs`, `session.rs`), with offline unlock, conversion of old vaults and a rollback guard. It has no network permission until the Firebase transport lands. Diagram, formats, what `.skln` needs to provide and the task list: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Storage rules: `firebase/storage.rules`.
 
 ## Build
 
 ```
-cargo test -p passvault-core                      # core tests, any machine
+cargo test -p silk-core                           # core tests, any machine
 (cd browser-extension && npm test)                # extension tests, Node 18+
 
 rustup target add aarch64-linux-android x86_64-linux-android
 cargo install cargo-ndk
-cargo ndk --platform 26 -t arm64-v8a -t x86_64 -o android/app/src/main/jniLibs build --release --package passvault
+cargo ndk --platform 26 -t arm64-v8a -t x86_64 -o android/app/src/main/jniLibs build --release --package silk
 gradle -p android assembleDebug                   # JDK 17, Gradle 8.9, Android SDK + NDK installed
 ```
 
@@ -82,7 +90,7 @@ Slint's Android backend compiles a small Java helper while building, so `ANDROID
 Before tagging, add these repository secrets (Settings > Secrets and variables > Actions):
 
 ```
-keytool -genkeypair -v -keystore release.jks -alias passvault -keyalg RSA -keysize 4096 -validity 10000
+keytool -genkeypair -v -keystore release.jks -alias silk -keyalg RSA -keysize 4096 -validity 10000
 base64 -w0 release.jks        # paste the output as KEYSTORE_BASE64
 ```
 
@@ -90,4 +98,4 @@ base64 -w0 release.jks        # paste the output as KEYSTORE_BASE64
 
 ## Not included yet
 
-QR scanning for OTP setup, HOTP, passphrase generation, biometric quick unlock, saving new logins from other apps, KeePass import, editing the vault from the browser extension, an iOS app (needs a separate Swift credential-provider extension and a macOS runner).
+QR scanning for OTP setup, HOTP, passphrase generation, saving new logins from other apps, KeePass import, editing the vault from the browser extension, an iOS app (needs a separate Swift credential-provider extension and a macOS runner).

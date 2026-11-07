@@ -1,15 +1,15 @@
 [package]
-name = "passvault"
+name = "silk"
 version = "1.0.0"
 edition = "2021"
 build = "build.rs"
 
 [lib]
-name = "passvault"
+name = "silk"
 crate-type = ["cdylib"]
 
 [dependencies]
-passvault-core = { path = "../core" }
+silk-core = { path = "../core" }
 slint = { version = "1.8", default-features = false, features = ["std", "compat-1-2", "backend-android-activity-06", "renderer-femtovg"] }
 # Slint's Android backend needs exactly one activity flavour; we use NativeActivity.
 android-activity = { version = "0.6", features = ["native-activity"] }

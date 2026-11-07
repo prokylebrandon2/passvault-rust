@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.PassVault" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.Silk" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/window_bg</item>
         <item name="android:statusBarColor">@color/window_bg</item>
         <item name="android:navigationBarColor">@color/window_bg</item>

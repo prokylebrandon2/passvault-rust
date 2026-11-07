@@ -13,12 +13,16 @@ pub enum Error {
     Io(String),
     /// An import file that can't be read. The message says what to do about it.
     Import(String),
+    /// The cloud copy (Firebase) couldn't be reached or refused the request.
+    Remote(String),
+    /// The vault file is older than one this device has already seen (see `local::DirStore::check_revision`).
+    Rollback,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::NotAVault => f.write_str("This isn't a PassVault file."),
+            Error::NotAVault => f.write_str("This isn't a Silk file."),
             Error::Corrupt => f.write_str("The vault file is damaged."),
             Error::Locked => f.write_str("The vault is locked. Unlock it and try again."),
             Error::KeyFileRequired => f.write_str("This vault needs its key file. Choose it and try again."),
@@ -28,6 +32,10 @@ impl fmt::Display for Error {
             Error::Random => f.write_str("Couldn't get secure random numbers from the system."),
             Error::Io(e) => write!(f, "Couldn't read or write the vault: {e}"),
             Error::Import(m) => f.write_str(m),
+            Error::Remote(e) => write!(f, "Couldn't reach the cloud copy: {e}"),
+            Error::Rollback => f.write_str(
+                "This vault is older than the last copy this device saw, so it wasn't opened. If you meant to go back to an old backup, restore it from the backup option.",
+            ),
         }
     }
 }

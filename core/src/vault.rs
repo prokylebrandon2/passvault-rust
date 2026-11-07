@@ -1,3 +1,10 @@
+//! Shared types (`Entry`, `Kdf`, key derivation) and the **legacy** `.pvlt` vault container.
+//!
+//! `Vault` is the format Silk used before the key slot existed: the Argon2id key encrypts the entries
+//! directly. New vaults use `cloud::CloudVault` (VEK + key slot + archive). `Vault` stays so that old
+//! vaults and old backups can still be opened and converted (`CloudVault::migrate_legacy`), and
+//! because the browser extension reads this format. The `PVLT` magic is the old format's identity
+//! and is deliberately not renamed: old files must keep being recognised.
 use crate::error::Error;
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -40,6 +47,13 @@ pub struct Kdf {
 impl Default for Kdf {
     fn default() -> Self {
         Kdf { t: 3, mem_kib: 65536, p: 4 }
+    }
+}
+
+impl Kdf {
+    /// Rejects absurd costs so a crafted file can't exhaust memory or hang the app.
+    pub(crate) fn is_sane(&self) -> bool {
+        (1..=32).contains(&self.t) && (8..=(1 << 18)).contains(&self.mem_kib) && (1..=16).contains(&self.p)
     }
 }
 
@@ -189,6 +203,16 @@ impl Vault {
 
 /// password -> SHA-256, [then SHA-256(that || SHA-256(key file))] -> Argon2id -> 32-byte key.
 fn derive_key(password: &str, key_file: Option<&[u8]>, h: &Header) -> Result<Zeroizing<[u8; 32]>, Error> {
+    derive_key_raw(password, key_file, h.kdf, &h.salt)
+}
+
+/// Same derivation, without a vault header. The key slot that wraps the VEK (see `keyslot`) uses it too.
+pub(crate) fn derive_key_raw(
+    password: &str,
+    key_file: Option<&[u8]>,
+    kdf: Kdf,
+    salt: &[u8; 16],
+) -> Result<Zeroizing<[u8; 32]>, Error> {
     let mut ikm = Zeroizing::new([0u8; 32]);
     ikm.copy_from_slice(&Sha256::digest(password.as_bytes()));
     if let Some(kf) = key_file {
@@ -197,10 +221,10 @@ fn derive_key(password: &str, key_file: Option<&[u8]>, h: &Header) -> Result<Zer
         hasher.update(Sha256::digest(kf));
         ikm.copy_from_slice(&hasher.finalize());
     }
-    let params = Params::new(h.kdf.mem_kib, h.kdf.t, h.kdf.p, Some(32)).map_err(|_| Error::Corrupt)?;
+    let params = Params::new(kdf.mem_kib, kdf.t, kdf.p, Some(32)).map_err(|_| Error::Corrupt)?;
     let mut out = Zeroizing::new([0u8; 32]);
     Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
-        .hash_password_into(&ikm[..], &h.salt, &mut out[..])
+        .hash_password_into(&ikm[..], salt, &mut out[..])
         .map_err(|_| Error::Crypto)?;
     Ok(out)
 }

@@ -54,7 +54,7 @@ mod tests {
     use crate::vault::new_id;
 
     fn temp_dir() -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("passvault-settings-{}", new_id()))
+        std::env::temp_dir().join(format!("silk-settings-{}", new_id()))
     }
 
     #[test]

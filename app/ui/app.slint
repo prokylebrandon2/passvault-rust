@@ -1,4 +1,4 @@
-// PassVault UI. Verdigris (the green patina on old brass keys) as the accent;
+// Silk UI. Verdigris (the green patina on old brass keys) as the accent;
 // brass appears only on the one-time-code countdown.
 // Motion: screens cross-fade and rise into place, the tab bar slides, controls respond to
 // touch, banners expand, and the countdown bars glide.
@@ -26,7 +26,7 @@ export global Theme {
 
 // Line icons drawn as vector paths (no image files).
 // 0 key, 1 clock, 2 sliders, 3 menu, 4 plus, 5 search, 6 shield, 7 chevron, 8 minus
-component PvIcon inherits Rectangle {
+component SilkIcon inherits Rectangle {
     in property <int> kind: 0;
     in-out property <color> tint: Theme.fg;
     in property <length> thickness: 2px;
@@ -135,7 +135,7 @@ component PvIcon inherits Rectangle {
 }
 
 // Three bouncing dots. Only animates while it is on screen.
-component PvDots inherits Rectangle {
+component SilkDots inherits Rectangle {
     in property <color> tint: Theme.on-accent;
     width: 44px;
     height: 14px;
@@ -152,7 +152,7 @@ component PvDots inherits Rectangle {
 }
 
 // One screen of the app: fades and rises in when active, fades out when not.
-component PvScreen inherits Rectangle {
+component SilkScreen inherits Rectangle {
     in property <bool> active: false;
     opacity: root.active ? 1.0 : 0.0;
     y: root.active ? 0px : 14px;
@@ -163,7 +163,7 @@ component PvScreen inherits Rectangle {
 }
 
 // Error (preferred) or notice message that expands in and collapses away.
-component PvBanner inherits Rectangle {
+component SilkBanner inherits Rectangle {
     in property <string> error: "";
     in property <string> notice: "";
     property <string> msg: root.error != "" ? root.error : root.notice;
@@ -195,7 +195,7 @@ component PvBanner inherits Rectangle {
     }
 }
 
-component PvButton inherits Rectangle {
+component SilkButton inherits Rectangle {
     in property <string> text;
     in property <bool> primary: false;
     in property <bool> active: true;
@@ -234,14 +234,14 @@ component PvButton inherits Rectangle {
         animate y { duration: 90ms; easing: ease-out; }
         animate opacity { duration: 140ms; }
     }
-    if root.busy : PvDots {
+    if root.busy : SilkDots {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         tint: Theme.on-accent;
     }
 }
 
-component PvLink inherits Rectangle {
+component SilkLink inherits Rectangle {
     in property <string> text;
     in property <color> tint: Theme.accent;
     callback clicked();
@@ -266,7 +266,7 @@ component PvLink inherits Rectangle {
 }
 
 // A small rounded action with an optional icon.
-component PvPill inherits Rectangle {
+component SilkPill inherits Rectangle {
     in property <string> text;
     in property <int> icon: -1;
     callback clicked();
@@ -283,7 +283,7 @@ component PvPill inherits Rectangle {
     background: touch.pressed ? Theme.accent : Theme.accent-soft;
     animate background { duration: 140ms; easing: ease-out; }
     touch := TouchArea { clicked => { root.clicked(); } }
-    if root.icon >= 0 : PvIcon {
+    if root.icon >= 0 : SilkIcon {
         x: root.start;
         y: (parent.height - self.height) / 2;
         width: 20px;
@@ -304,7 +304,7 @@ component PvPill inherits Rectangle {
     }
 }
 
-component PvIconButton inherits Rectangle {
+component SilkIconButton inherits Rectangle {
     in property <int> icon: 4;
     in property <color> tint: Theme.accent;
     callback clicked();
@@ -313,7 +313,7 @@ component PvIconButton inherits Rectangle {
     border-radius: 22px;
     background: touch.pressed ? Theme.accent-soft : transparent;
     animate background { duration: 140ms; easing: ease-out; }
-    PvIcon {
+    SilkIcon {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         kind: root.icon;
@@ -323,7 +323,7 @@ component PvIconButton inherits Rectangle {
     touch := TouchArea { clicked => { root.clicked(); } }
 }
 
-component PvField inherits Rectangle {
+component SilkField inherits Rectangle {
     in property <string> label;
     in property <bool> secret: false;
     in property <bool> multiline: false;
@@ -341,7 +341,7 @@ component PvField inherits Rectangle {
     animate border-width { duration: 120ms; easing: ease-out; }
     animate background { duration: 180ms; easing: ease-out; }
     TouchArea { clicked => { ti.focus(); } }
-    if root.icon >= 0 : PvIcon {
+    if root.icon >= 0 : SilkIcon {
         x: 14px;
         y: (parent.height - 22px) / 2;
         width: 22px;
@@ -450,7 +450,7 @@ component OtpCard inherits Rectangle {
 }
 
 // An on/off switch with a label and an optional hint line.
-component PvToggle inherits Rectangle {
+component SilkToggle inherits Rectangle {
     in property <string> label;
     in property <string> hint: "";
     in-out property <bool> checked: false;
@@ -504,7 +504,7 @@ component PvToggle inherits Rectangle {
 }
 
 // A horizontal slider over a whole-number range. Tap or drag.
-component PvSlider inherits Rectangle {
+component SilkSlider inherits Rectangle {
     in property <int> minimum: 8;
     in property <int> maximum: 64;
     in-out property <int> value: 20;
@@ -722,7 +722,7 @@ component TabBar inherits Rectangle {
         y: 0px;
         width: root.width / 4;
         height: 68px;
-        PvIcon {
+        SilkIcon {
             x: (parent.width - 24px) / 2;
             y: i == root.current ? 12px : 14px;
             kind: i;
@@ -773,7 +773,7 @@ component RowItem inherits Rectangle {
             height: 44px;
             border-radius: 14px;
             background: Theme.accent-soft;
-            PvIcon {
+            SilkIcon {
                 x: 10px;
                 y: 10px;
                 kind: 0;
@@ -790,7 +790,7 @@ component RowItem inherits Rectangle {
             Text { text: root.title; font-size: 17px; font-weight: 600; color: Theme.fg; overflow: elide; }
             if root.subtitle != "" : Text { text: root.subtitle; font-size: 14px; color: Theme.muted; overflow: elide; }
         }
-        PvIcon {
+        SilkIcon {
             x: parent.width - 34px;
             y: (parent.height - self.height) / 2;
             kind: 7;
@@ -799,7 +799,7 @@ component RowItem inherits Rectangle {
     }
 }
 
-component PvEmpty inherits Rectangle {
+component SilkEmpty inherits Rectangle {
     in property <int> icon: 0;
     in property <string> title;
     in property <string> text;
@@ -814,7 +814,7 @@ component PvEmpty inherits Rectangle {
                 height: 84px;
                 border-radius: 28px;
                 background: Theme.accent-soft;
-                PvIcon {
+                SilkIcon {
                     x: 22px;
                     y: 22px;
                     width: 40px;
@@ -835,7 +835,7 @@ export component MainWindow inherits Window {
     in-out property <bool> bio-enrolled;
     callback bio-unlock();
     callback bio-set(bool);
-    title: "PassVault";
+    title: "Silk";
     background: Theme.bg;
 
     // 0 unlock or create, 1 logins, 2 edit login, 3 codes, 4 generator, 5 more, 6 add authenticator
@@ -952,7 +952,7 @@ export component MainWindow inherits Window {
             clip: true;
 
             // 0: Unlock or create
-            PvScreen {
+            SilkScreen {
                 active: root.screen == 0;
                 width: parent.width;
                 height: parent.height;
@@ -986,7 +986,7 @@ export component MainWindow inherits Window {
                                 y: (parent.height - self.height) / 2;
                                 border-radius: 26px;
                                 background: Theme.accent;
-                                PvIcon {
+                                SilkIcon {
                                     x: 20px;
                                     y: 20px;
                                     width: 40px;
@@ -1017,8 +1017,8 @@ export component MainWindow inherits Window {
                             font-size: 14px;
                             color: Theme.muted;
                         }
-                        PvField { label: "Master password"; secret: true; text <=> root.pw1; edited => { root.activity(); } }
-                        if root.creating : PvField { label: "Confirm master password"; secret: true; text <=> root.pw2; edited => { root.activity(); } }
+                        SilkField { label: "Master password"; secret: true; text <=> root.pw1; edited => { root.activity(); } }
+                        if root.creating : SilkField { label: "Confirm master password"; secret: true; text <=> root.pw2; edited => { root.activity(); } }
                         HorizontalLayout {
                             spacing: 4px;
                             Text {
@@ -1029,20 +1029,20 @@ export component MainWindow inherits Window {
                                 horizontal-stretch: 1;
                                 overflow: elide;
                             }
-                            PvLink { text: "Choose key file"; clicked => { root.pick-key-file(); } }
-                            if root.key-file-name != "" : PvLink { text: "Clear"; clicked => { root.clear-key-file(); } }
+                            SilkLink { text: "Choose key file"; clicked => { root.pick-key-file(); } }
+                            if root.key-file-name != "" : SilkLink { text: "Clear"; clicked => { root.clear-key-file(); } }
                         }
-                        if root.creating : PvLink { text: "Create a new key file"; clicked => { root.create-key-file(); } }
-                        if root.creating : PvLink { text: "Restore from backup"; clicked => { root.restore-backup(); } }
-                        PvBanner { error: root.error; notice: root.notice; }
-                        PvButton {
+                        if root.creating : SilkLink { text: "Create a new key file"; clicked => { root.create-key-file(); } }
+                        if root.creating : SilkLink { text: "Restore from backup"; clicked => { root.restore-backup(); } }
+                        SilkBanner { error: root.error; notice: root.notice; }
+                        SilkButton {
                             text: root.creating ? "Create vault" : "Unlock vault";
                             primary: true;
                             busy: root.busy;
                             active: !root.busy && root.pw1 != "";
                             clicked => { root.submit(); }
                         }
-                        if root.bio-enrolled && !root.creating : PvButton {
+                        if root.bio-enrolled && !root.creating : SilkButton {
                             text: "Unlock with biometrics";
                             active: !root.busy;
                             clicked => { root.bio-unlock(); }
@@ -1052,7 +1052,7 @@ export component MainWindow inherits Window {
             }
 
             // 1: Logins
-            PvScreen {
+            SilkScreen {
                 active: root.screen == 1;
                 width: parent.width;
                 height: parent.height;
@@ -1086,19 +1086,19 @@ export component MainWindow inherits Window {
                                     Text { text: "Autofill is off"; font-size: 15px; font-weight: 700; color: Theme.fg; overflow: elide; }
                                     Text { text: "Turn it on to fill logins in other apps."; font-size: 12px; color: Theme.muted; overflow: elide; }
                                 }
-                                VerticalLayout { alignment: center; PvLink { text: "Turn on"; clicked => { root.enable-autofill(); } } }
+                                VerticalLayout { alignment: center; SilkLink { text: "Turn on"; clicked => { root.enable-autofill(); } } }
                             }
                         }
                     }
                     VerticalLayout {
                         padding-left: 16px;
                         padding-right: 16px;
-                        PvField { icon: 5; label: "Search logins"; text <=> root.query; edited => { root.activity(); root.search(); } }
+                        SilkField { icon: 5; label: "Search logins"; text <=> root.query; edited => { root.activity(); root.search(); } }
                     }
                     VerticalLayout {
                         padding-left: 16px;
                         padding-right: 16px;
-                        PvBanner { error: root.error; notice: root.notice; }
+                        SilkBanner { error: root.error; notice: root.notice; }
                     }
                     Rectangle {
                         vertical-stretch: 1;
@@ -1118,7 +1118,7 @@ export component MainWindow inherits Window {
                                 }
                             }
                         }
-                        if root.rows.length == 0 : PvEmpty {
+                        if root.rows.length == 0 : SilkEmpty {
                             x: 0px;
                             y: 0px;
                             width: parent.width;
@@ -1143,7 +1143,7 @@ export component MainWindow inherits Window {
                                 opacity: fab-touch.pressed ? 0.16 : 0.0;
                                 animate opacity { duration: 140ms; }
                             }
-                            PvIcon { x: 20px; y: 16px; kind: 4; tint: Theme.on-accent; thickness: 2.4px; }
+                            SilkIcon { x: 20px; y: 16px; kind: 4; tint: Theme.on-accent; thickness: 2.4px; }
                             Text {
                                 x: 52px;
                                 y: 0px;
@@ -1162,7 +1162,7 @@ export component MainWindow inherits Window {
             }
 
             // 2: Edit login
-            PvScreen {
+            SilkScreen {
                 active: root.screen == 2;
                 width: parent.width;
                 height: parent.height;
@@ -1175,9 +1175,9 @@ export component MainWindow inherits Window {
                         padding-left: 8px;
                         padding-right: 8px;
                         spacing: 4px;
-                        PvLink { text: "Back"; clicked => { root.back(); } }
+                        SilkLink { text: "Back"; clicked => { root.back(); } }
                         Text { text: root.is-new ? "New login" : "Edit login"; font-size: 20px; font-weight: 700; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; }
-                        if !root.is-new : PvLink { text: "Delete"; tint: Theme.danger; clicked => { root.delete-login(); } }
+                        if !root.is-new : SilkLink { text: "Delete"; tint: Theme.danger; clicked => { root.delete-login(); } }
                     }
                     Flickable {
                         vertical-stretch: 1;
@@ -1188,24 +1188,24 @@ export component MainWindow inherits Window {
                             alignment: start;
                             padding: 16px;
                             spacing: 10px;
-                            PvField { label: "Title"; text <=> root.f-title; edited => { root.activity(); } }
-                            PvField { label: "Username or email"; text <=> root.f-user; edited => { root.activity(); } }
-                            PvField { label: "Password"; secret: !root.show-password; text <=> root.f-password; edited => { root.activity(); } }
+                            SilkField { label: "Title"; text <=> root.f-title; edited => { root.activity(); } }
+                            SilkField { label: "Username or email"; text <=> root.f-user; edited => { root.activity(); } }
+                            SilkField { label: "Password"; secret: !root.show-password; text <=> root.f-password; edited => { root.activity(); } }
                             HorizontalLayout {
                                 spacing: 4px;
                                 alignment: start;
-                                PvLink { text: root.show-password ? "Hide" : "Show"; clicked => { root.show-password = !root.show-password; } }
-                                PvLink { text: "Generate"; clicked => { if (!root.is-new && root.f-password != "") { root.confirm-gen = true; } else { root.generate(); } } }
-                                PvLink { text: "Copy"; clicked => { root.copy-password(); } }
+                                SilkLink { text: root.show-password ? "Hide" : "Show"; clicked => { root.show-password = !root.show-password; } }
+                                SilkLink { text: "Generate"; clicked => { if (!root.is-new && root.f-password != "") { root.confirm-gen = true; } else { root.generate(); } } }
+                                SilkLink { text: "Copy"; clicked => { root.copy-password(); } }
                             }
-                            PvField { label: "Website or app"; text <=> root.f-url; edited => { root.activity(); } }
+                            SilkField { label: "Website or app"; text <=> root.f-url; edited => { root.activity(); } }
                             Text {
                                 text: "https://example.com or androidapp://com.example.app. Autofill uses this to find the login.";
                                 wrap: word-wrap;
                                 font-size: 12px;
                                 color: Theme.muted;
                             }
-                            PvField { label: "One-time password secret"; text <=> root.f-otp; edited => { root.activity(); root.otp-edited(); } }
+                            SilkField { label: "One-time password secret"; text <=> root.f-otp; edited => { root.activity(); root.otp-edited(); } }
                             if root.otp-code != "" : OtpCard {
                                 code: root.otp-code;
                                 left-text: root.otp-left-text;
@@ -1218,16 +1218,16 @@ export component MainWindow inherits Window {
                                 font-size: 13px;
                                 color: Theme.danger;
                             }
-                            PvField { label: "Notes"; multiline: true; text <=> root.f-notes; edited => { root.activity(); } }
-                            PvBanner { error: root.error; notice: ""; }
-                            PvButton { text: "Save login"; primary: true; active: root.f-title != ""; clicked => { root.save(); } }
+                            SilkField { label: "Notes"; multiline: true; text <=> root.f-notes; edited => { root.activity(); } }
+                            SilkBanner { error: root.error; notice: ""; }
+                            SilkButton { text: "Save login"; primary: true; active: root.f-title != ""; clicked => { root.save(); } }
                         }
                     }
                 }
             }
 
             // 3: Codes, every login's one-time password in one list
-            PvScreen {
+            SilkScreen {
                 active: root.screen == 3;
                 width: parent.width;
                 height: parent.height;
@@ -1247,12 +1247,12 @@ export component MainWindow inherits Window {
                             Text { text: "Codes"; font-size: 30px; font-weight: 800; color: Theme.fg; }
                             Text { text: root.otp-rows.length == 1 ? "1 authenticator" : "\{root.otp-rows.length} authenticators"; font-size: 14px; color: Theme.muted; }
                         }
-                        VerticalLayout { alignment: center; PvPill { text: "Add"; icon: 4; clicked => { root.new-authenticator(); } } }
+                        VerticalLayout { alignment: center; SilkPill { text: "Add"; icon: 4; clicked => { root.new-authenticator(); } } }
                     }
                     VerticalLayout {
                         padding-left: 16px;
                         padding-right: 16px;
-                        PvBanner { error: root.error; notice: root.notice; }
+                        SilkBanner { error: root.error; notice: root.notice; }
                     }
                     Rectangle {
                         vertical-stretch: 1;
@@ -1276,7 +1276,7 @@ export component MainWindow inherits Window {
                                 }
                             }
                         }
-                        if root.otp-rows.length == 0 : PvEmpty {
+                        if root.otp-rows.length == 0 : SilkEmpty {
                             x: 0px;
                             y: 0px;
                             width: parent.width;
@@ -1290,7 +1290,7 @@ export component MainWindow inherits Window {
             }
 
             // 4: Generator
-            PvScreen {
+            SilkScreen {
                 active: root.screen == 4;
                 width: parent.width;
                 height: parent.height;
@@ -1334,10 +1334,10 @@ export component MainWindow inherits Window {
                         }
                         HorizontalLayout {
                             spacing: 10px;
-                            PvButton { text: "New password"; primary: true; clicked => { root.gen-regenerate(); } }
-                            PvButton { text: "Copy"; clicked => { root.gen-copy(); } }
+                            SilkButton { text: "New password"; primary: true; clicked => { root.gen-regenerate(); } }
+                            SilkButton { text: "Copy"; clicked => { root.gen-copy(); } }
                         }
-                        gen-banner := PvBanner { error: root.error; notice: root.notice; }
+                        gen-banner := SilkBanner { error: root.error; notice: root.notice; }
                         HorizontalLayout {
                             padding-left: 4px;
                             padding-right: 4px;
@@ -1346,7 +1346,7 @@ export component MainWindow inherits Window {
                         }
                         HorizontalLayout {
                             spacing: 0px;
-                            PvIconButton {
+                            SilkIconButton {
                                 icon: 8;
                                 clicked => {
                                     if (root.gen-length > 8) {
@@ -1355,14 +1355,14 @@ export component MainWindow inherits Window {
                                     }
                                 }
                             }
-                            PvSlider {
+                            SilkSlider {
                                 horizontal-stretch: 1;
                                 minimum: 8;
                                 maximum: 64;
                                 value <=> root.gen-length;
                                 changed => { root.gen-changed(); }
                             }
-                            PvIconButton {
+                            SilkIconButton {
                                 icon: 4;
                                 clicked => {
                                     if (root.gen-length < 64) {
@@ -1381,17 +1381,17 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 6px;
                                 spacing: 0px;
-                                PvToggle { label: "Lowercase"; hint: "a to z"; checked <=> root.gen-lower; toggled => { root.gen-changed(); } }
+                                SilkToggle { label: "Lowercase"; hint: "a to z"; checked <=> root.gen-lower; toggled => { root.gen-changed(); } }
                                 Rectangle { height: 1px; background: Theme.outline; opacity: 0.5; }
-                                PvToggle { label: "Uppercase"; hint: "A to Z"; checked <=> root.gen-upper; toggled => { root.gen-changed(); } }
+                                SilkToggle { label: "Uppercase"; hint: "A to Z"; checked <=> root.gen-upper; toggled => { root.gen-changed(); } }
                                 Rectangle { height: 1px; background: Theme.outline; opacity: 0.5; }
-                                PvToggle { label: "Numbers"; hint: "0 to 9"; checked <=> root.gen-digits; toggled => { root.gen-changed(); } }
+                                SilkToggle { label: "Numbers"; hint: "0 to 9"; checked <=> root.gen-digits; toggled => { root.gen-changed(); } }
                                 Rectangle { height: 1px; background: Theme.outline; opacity: 0.5; }
-                                PvToggle { label: "Symbols"; hint: "! @ # $ % ^ & * - _ = + ?"; checked <=> root.gen-symbols; toggled => { root.gen-changed(); } }
+                                SilkToggle { label: "Symbols"; hint: "! @ # $ % ^ & * - _ = + ?"; checked <=> root.gen-symbols; toggled => { root.gen-changed(); } }
                                 Rectangle { height: 1px; background: Theme.outline; opacity: 0.5; }
-                                PvToggle { label: "Avoid look-alikes"; hint: "Leaves out l I 1 O 0 o"; checked <=> root.gen-lookalikes; toggled => { root.gen-changed(); } }
+                                SilkToggle { label: "Avoid look-alikes"; hint: "Leaves out l I 1 O 0 o"; checked <=> root.gen-lookalikes; toggled => { root.gen-changed(); } }
                                 Rectangle { height: 1px; background: Theme.outline; opacity: 0.5; }
-                                PvToggle { label: "Fill new logins automatically"; hint: "Start every new login with a generated password"; checked <=> root.auto-generate; toggled => { root.gen-changed(); } }
+                                SilkToggle { label: "Fill new logins automatically"; hint: "Start every new login with a generated password"; checked <=> root.auto-generate; toggled => { root.gen-changed(); } }
                             }
                         }
                     }
@@ -1399,7 +1399,7 @@ export component MainWindow inherits Window {
             }
 
             // 5: More
-            PvScreen {
+            SilkScreen {
                 active: root.screen == 5;
                 width: parent.width;
                 height: parent.height;
@@ -1415,7 +1415,7 @@ export component MainWindow inherits Window {
                         padding-top: 22px + root.safe-area-insets.top;
                         spacing: 12px;
                         Text { text: "More"; font-size: 30px; font-weight: 800; color: Theme.fg; height: 40px; }
-                        more-banner := PvBanner { error: root.error; notice: root.notice; }
+                        more-banner := SilkBanner { error: root.error; notice: root.notice; }
 
                         SectionLabel { text: "AUTOFILL"; }
                         Rectangle {
@@ -1445,7 +1445,7 @@ export component MainWindow inherits Window {
                                     vertical-alignment: center;
                                     horizontal-stretch: 1;
                                 }
-                                if !root.autofill-on : VerticalLayout { alignment: center; PvLink { text: "Turn on"; clicked => { root.enable-autofill(); } } }
+                                if !root.autofill-on : VerticalLayout { alignment: center; SilkLink { text: "Turn on"; clicked => { root.enable-autofill(); } } }
                             }
                         }
 
@@ -1456,9 +1456,9 @@ export component MainWindow inherits Window {
                             font-size: 14px;
                             color: Theme.muted;
                         }
-                        PvButton { text: "Import from Proton Pass"; primary: true; clicked => { root.import-proton(); } }
-                        PvButton { text: "Export for Proton Pass (CSV)"; clicked => { root.export-ask = 1; } }
-                        PvButton { text: "Export for Proton Pass (JSON)"; clicked => { root.export-ask = 2; } }
+                        SilkButton { text: "Import from Proton Pass"; primary: true; clicked => { root.import-proton(); } }
+                        SilkButton { text: "Export for Proton Pass (CSV)"; clicked => { root.export-ask = 1; } }
+                        SilkButton { text: "Export for Proton Pass (JSON)"; clicked => { root.export-ask = 2; } }
                         Rectangle {
                             height: root.export-ask != 0 ? 200px : 0px;
                             clip: true;
@@ -1478,8 +1478,8 @@ export component MainWindow inherits Window {
                                 }
                                 HorizontalLayout {
                                     spacing: 10px;
-                                    PvButton { text: "Cancel"; clicked => { root.export-ask = 0; } }
-                                    PvButton {
+                                    SilkButton { text: "Cancel"; clicked => { root.export-ask = 0; } }
+                                    SilkButton {
                                         text: "Export anyway";
                                         primary: true;
                                         clicked => {
@@ -1498,7 +1498,7 @@ export component MainWindow inherits Window {
                             background: Theme.card;
                             border-width: 1px;
                             border-color: Theme.outline;
-                            PvToggle {
+                            SilkToggle {
                                 x: 4px;
                                 y: 0px;
                                 width: parent.width - 8px;
@@ -1510,15 +1510,15 @@ export component MainWindow inherits Window {
                         }
 
                         SectionLabel { text: "VAULT"; }
-                        PvButton { text: "Back up vault (encrypted)"; clicked => { root.backup(); } }
-                        PvButton { text: "Lock now"; clicked => { root.lock(); } }
-                        Text { text: root.app-version == "" ? "" : "PassVault \{root.app-version}"; font-size: 12px; color: Theme.muted; horizontal-alignment: center; }
+                        SilkButton { text: "Back up vault (encrypted)"; clicked => { root.backup(); } }
+                        SilkButton { text: "Lock now"; clicked => { root.lock(); } }
+                        Text { text: root.app-version == "" ? "" : "Silk \{root.app-version}"; font-size: 12px; color: Theme.muted; horizontal-alignment: center; }
                     }
                 }
             }
 
             // 6: Add authenticator
-            PvScreen {
+            SilkScreen {
                 active: root.screen == 6;
                 width: parent.width;
                 height: parent.height;
@@ -1531,7 +1531,7 @@ export component MainWindow inherits Window {
                         padding-left: 8px;
                         padding-right: 8px;
                         spacing: 4px;
-                        PvLink { text: "Back"; clicked => { root.back-codes(); } }
+                        SilkLink { text: "Back"; clicked => { root.back-codes(); } }
                         Text { text: "Add authenticator"; font-size: 20px; font-weight: 700; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; }
                     }
                     Flickable {
@@ -1549,8 +1549,8 @@ export component MainWindow inherits Window {
                                 font-size: 14px;
                                 color: Theme.muted;
                             }
-                            PvField { label: "Name (for example GitHub)"; text <=> root.a-name; edited => { root.activity(); } }
-                            PvField { label: "Setup key or otpauth:// link"; text <=> root.a-secret; edited => { root.activity(); root.auth-edited(); } }
+                            SilkField { label: "Name (for example GitHub)"; text <=> root.a-name; edited => { root.activity(); } }
+                            SilkField { label: "Setup key or otpauth:// link"; text <=> root.a-secret; edited => { root.activity(); root.auth-edited(); } }
                             if root.a-invalid : Text {
                                 text: "That isn't a valid secret. Paste the Base32 setup key or an otpauth:// link.";
                                 wrap: word-wrap;
@@ -1563,8 +1563,8 @@ export component MainWindow inherits Window {
                                 progress: root.a-progress;
                                 copyable: false;
                             }
-                            PvBanner { error: root.error; notice: ""; }
-                            PvButton {
+                            SilkBanner { error: root.error; notice: ""; }
+                            SilkButton {
                                 text: "Save authenticator";
                                 primary: true;
                                 active: root.a-name != "" && root.a-code != "";
@@ -1620,8 +1620,8 @@ export component MainWindow inherits Window {
                     font-size: 14px;
                     color: Theme.muted;
                 }
-                PvButton { text: "Replace password"; primary: true; clicked => { root.confirm-gen = false; root.generate(); } }
-                PvLink { text: "Cancel"; clicked => { root.confirm-gen = false; } }
+                SilkButton { text: "Replace password"; primary: true; clicked => { root.confirm-gen = false; root.generate(); } }
+                SilkLink { text: "Cancel"; clicked => { root.confirm-gen = false; } }
             }
         }
     }

@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace = "app.passvault"
+    namespace = "app.silk"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "app.passvault"
+        applicationId = "app.silk"
         minSdk = 26 // the autofill framework arrives in API 26
         // 34 keeps the classic window layout, so the Slint UI isn't drawn under the status bar.
         targetSdk = 34

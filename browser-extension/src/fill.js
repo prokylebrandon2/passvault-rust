@@ -1,6 +1,6 @@
 // Runs INSIDE the web page (chrome.scripting.executeScript serialises this function's source),
 // so it must not refer to anything outside its own body.
-export function pvFill(user, pass, code) {
+export function silkFill(user, pass, code) {
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     const s = getComputedStyle(el);

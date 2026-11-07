@@ -4,8 +4,9 @@
 use crate::bridge;
 use crate::state::{self, Event};
 use crate::{MainWindow, OtpRow, Row, Theme};
-use passvault_core::otp::{self, OtpParams};
-use passvault_core::{generate, new_id, random_bytes, transfer, Entry, Error, GenOptions, Kdf, Settings, Vault};
+use silk_core::otp::{self, OtpParams};
+use silk_core::session::{self, Outcome};
+use silk_core::{generate, new_id, random_bytes, transfer, Entry, Error, GenOptions, Kdf, Settings};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ use std::rc::Rc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use zeroize::{Zeroize, Zeroizing};
 
-// Request codes shared with PvActivity.java.
+// Request codes shared with SilkActivity.java.
 const KEY_PICK: i32 = 1;
 const KEY_CREATE: i32 = 2;
 const BACKUP_OUT: i32 = 3;
@@ -32,7 +33,7 @@ const BIO_INVALIDATED: i32 = 3;
 #[derive(Default)]
 struct Ctl {
     creating: bool,
-    /// True when this process was started by the autofill "Unlock PassVault" row.
+    /// True when this process was started by the autofill "Unlock Silk" row.
     auth_mode: bool,
     key_file: Option<Zeroizing<Vec<u8>>>,
     editing: Option<String>,
@@ -120,7 +121,7 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
         let key_file = c.key_file.as_ref().map(|k| Zeroizing::new(k.to_vec()));
         // Argon2 takes a moment, so it runs off the UI thread and reports back through an event.
         std::thread::spawn(move || {
-            let result = unlock_or_create(creating, &pw, key_file.as_ref().map(|k| k.as_slice()));
+            let result = unlock_or_create(&pw, key_file.as_ref().map(|k| k.as_slice()));
             pw.zeroize();
             state::push(Event::Unlocked(result.map_err(|e| e.to_string())));
         });
@@ -138,7 +139,7 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
             ui.set_error("".into());
             ui.set_notice("".into());
             if on {
-                let key = state::session().export_key();
+                let key = state::session().export_vek();
                 match key {
                     Ok(k) => {
                         c.bio_pending = true;
@@ -161,7 +162,7 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
         bridge::pick_file(KEY_PICK);
     });
     handler!(ui, ctl, on_create_key_file, |_u, _c| {
-        bridge::create_file(KEY_CREATE, "passvault.key", &random_bytes(64));
+        bridge::create_file(KEY_CREATE, "silk.key", &random_bytes(64));
     });
     handler!(ui, ctl, on_clear_key_file, |ui, c| {
         c.key_file = None;
@@ -182,12 +183,12 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
         refresh_rows(&ui, &ui.get_query());
     });
     handler!(ui, ctl, on_backup, |ui, _c| {
-        let file = state::session().read_file();
+        let file = state::session().read_backup();
         match file {
             Ok(bytes) => {
                 ui.set_error("".into());
                 ui.set_notice("".into());
-                bridge::create_file(BACKUP_OUT, "passvault-backup.pvlt", &bytes);
+                bridge::create_file(BACKUP_OUT, "silk-backup.silk", &bytes);
             }
             Err(e) => ui.set_error(e.to_string().into()),
         }
@@ -395,9 +396,9 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
             let Some(mut list) = list else { return };
             let now = now_secs();
             let (mut bytes, code, name) = if kind == 2 {
-                (transfer::export_json(&list, now).into_bytes(), EXPORT_JSON, "passvault-proton-pass.json")
+                (transfer::export_json(&list, now).into_bytes(), EXPORT_JSON, "silk-proton-pass.json")
             } else {
-                (transfer::export_csv(&list, now).into_bytes(), EXPORT_CSV, "passvault-proton-pass.csv")
+                (transfer::export_csv(&list, now).into_bytes(), EXPORT_CSV, "silk-proton-pass.csv")
             };
             for e in list.iter_mut() {
                 e.zeroize();
@@ -410,29 +411,28 @@ fn wire(ui: &MainWindow, ctl: &Shared) {
     }
 }
 
-/// Copies the encrypted vault file to the file chosen with Backup or Restore, if there is one.
+/// Copies the encrypted backup (key slot + vault file) to the file chosen with Backup or Restore, if there is one.
 fn auto_backup() {
-    let bytes = state::session().read_file();
+    let bytes = state::session().read_backup();
     if let Ok(b) = bytes {
         bridge::auto_backup(&b);
     }
 }
 
-fn unlock_or_create(creating: bool, pw: &str, key_file: Option<&[u8]>) -> Result<(), Error> {
-    if creating {
-        let vault = Vault::create(pw, key_file, Kdf::default())?;
-        state::session().install(vault, true)
-    } else {
-        let bytes = state::session().read_file()?;
-        let vault = Vault::open(&bytes, pw, key_file)?;
-        state::session().install(vault, false)
-    }
+/// Creates the vault on first use, converts an old `.pvlt` one, or opens the existing one. The slow
+/// Argon2id work runs here, outside the session lock, so autofill is never held up behind it.
+fn unlock_or_create(pw: &str, key_file: Option<&[u8]>) -> Result<Outcome, Error> {
+    let store = state::session().store()?;
+    let opened = session::unlock(&store, pw, key_file, Kdf::default())?;
+    state::session().install(opened.vault)?;
+    Ok(opened.outcome)
 }
 
-fn unlock_with_key(key: &[u8; 32]) -> Result<(), Error> {
-    let bytes = state::session().read_file()?;
-    let vault = Vault::open_with_key(&bytes, key)?;
-    state::session().install(vault, false)
+/// Biometric unlock: the Keystore hands back the VEK, so there is no Argon2id.
+fn unlock_with_vek(vek: &[u8; 32]) -> Result<(), Error> {
+    let store = state::session().store()?;
+    let vault = session::unlock_with_vek(&store, vek)?;
+    state::session().install(vault)
 }
 
 fn start_bio_unlock(ui: &MainWindow, c: &mut Ctl) {
@@ -477,18 +477,29 @@ fn start_timer(timer: &slint::Timer, ui: &MainWindow, ctl: &Shared) {
 
 fn handle_event(ui: &MainWindow, c: &mut Ctl, ev: Event) {
     match ev {
-        Event::Unlocked(Ok(())) => {
+        Event::Unlocked(Ok(outcome)) => {
             ui.set_busy(false);
             ui.set_pw1("".into());
             ui.set_pw2("".into());
             ui.set_error("".into());
             c.creating = false;
             ui.set_creating(false);
+            let migrated = outcome == Outcome::Migrated;
+            if migrated {
+                // The biometric key wrapped the old vault key (before the VEK existed), which the converted vault no longer uses.
+                bridge::bio_disable();
+                c.bio_enrolled = false;
+                ui.set_bio_enrolled(false);
+            }
             if c.auth_mode {
                 // Started by autofill: hand the matching logins back to the app that asked.
                 bridge::finish_with_fill();
             } else {
-                ui.set_notice("".into());
+                ui.set_notice(if migrated {
+                    "Your vault was upgraded to Silk's new format. If you used biometric unlock, turn it on again in More.".into()
+                } else {
+                    "".into()
+                });
                 ui.set_query("".into());
                 refresh_rows(ui, "");
                 ui.set_screen(1);
@@ -518,13 +529,15 @@ fn handle_event(ui: &MainWindow, c: &mut Ctl, ev: Event) {
                         ui.set_error("".into());
                         state::touch();
                         std::thread::spawn(move || {
-                            let result = unlock_with_key(&kk);
-                            if result.is_err() {
-                                bridge::bio_disable(); // the stored key no longer matches this vault
-                            }
-                            state::push(Event::Unlocked(result.map_err(|_| {
-                                "Biometric unlock is out of date. Use your master password.".to_string()
-                            })));
+                            let result = match unlock_with_vek(&kk) {
+                                Ok(()) => Ok(Outcome::Unlocked),
+                                Err(Error::Corrupt) | Err(Error::NotAVault) => {
+                                    bridge::bio_disable(); // the stored key no longer matches this vault
+                                    Err("Biometric unlock is out of date. Use your master password.".to_string())
+                                }
+                                Err(e) => Err(e.to_string()),
+                            };
+                            state::push(Event::Unlocked(result));
                         });
                     }
                     (BIO_INVALIDATED, _) => {

@@ -320,7 +320,7 @@ fn otp_uri(e: &Entry) -> String {
     if secret.is_empty() {
         return String::new();
     }
-    let label = if e.title.is_empty() { "PassVault" } else { e.title.as_str() };
+    let label = if e.title.is_empty() { "Silk" } else { e.title.as_str() };
     format!("otpauth://totp/{}?secret={}&algorithm=SHA1&digits=6&period=30", pct_encode(label), secret)
 }
 
@@ -353,7 +353,7 @@ pub fn export_csv(entries: &[Entry], now: u64) -> String {
             otp_uri(e),
             now.to_string(),
             now.to_string(),
-            "PassVault".to_string(),
+            "Silk".to_string(),
         ];
         let line: Vec<String> = cols.iter().map(|c| csv_field(c)).collect();
         out.push_str(&line.join(","));
@@ -403,10 +403,10 @@ pub fn export_json(entries: &[Entry], now: u64) -> String {
         })
         .collect();
     let mut vaults = serde_json::Map::new();
-    vaults.insert(share.clone(), json!({ "name": "PassVault", "description": "Exported from PassVault", "items": items }));
+    vaults.insert(share.clone(), json!({ "name": "Silk", "description": "Exported from Silk", "items": items }));
     let root = json!({
         "version": "1.0.0",
-        "userId": "passvault",
+        "userId": "silk",
         "encrypted": false,
         "vaults": vaults,
     });

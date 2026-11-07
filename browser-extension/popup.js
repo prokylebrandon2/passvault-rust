@@ -1,6 +1,6 @@
 import { parseOtp, totpCode, secondsLeft, groupCode } from './src/totp.js';
 import { urlMatches, hostOf } from './src/match.js';
-import { pvFill } from './src/fill.js';
+import { silkFill } from './src/fill.js';
 import { toBase64, fromBase64, parseHeader, VaultError } from './src/vault.js';
 
 const IDLE_MS = 5 * 60 * 1000; // same idle limit as the app
@@ -46,7 +46,7 @@ async function touch() {
   if (!st.entries) return;
   const until = Date.now() + IDLE_MS;
   await chrome.storage.session.set({ unlocked: { entries: st.entries, until } });
-  chrome.alarms.create('pv-lock', { when: until });
+  chrome.alarms.create('silk-lock', { when: until });
 }
 
 async function lock() {
@@ -54,7 +54,7 @@ async function lock() {
   st.query = '';
   st.msg = '';
   await chrome.storage.session.remove('unlocked');
-  chrome.alarms.clear('pv-lock');
+  chrome.alarms.clear('silk-lock');
   render();
 }
 
@@ -90,8 +90,8 @@ function renderMessages() {
 
 function renderImport() {
   app.innerHTML = `
-    <h1>PassVault</h1>
-    <p>Add your vault to this browser. In the Android app open <b>More</b> and tap <b>Back up vault</b>, move the <code>.pvlt</code> file to this computer, then choose it here. It stays encrypted; only your master password opens it.</p>
+    <h1>Silk</h1>
+    <p>Add your vault to this browser. In the Android app open <b>More</b> and tap <b>Back up vault</b>, move the <code>.silk</code> file to this computer, then choose it here (an older <code>.pvlt</code> backup works too). It stays encrypted; only your master password opens it.</p>
     <input id="file" type="file" hidden>
     <button class="primary" id="pick">Choose vault file</button>
     <div id="messages">${messages()}</div>`;
@@ -106,7 +106,7 @@ async function importVault(file) {
   st.err = '';
   st.msg = '';
   if (file.size > MAX_FILE) {
-    st.err = 'That file is too large to be a PassVault backup.';
+    st.err = 'That file is too large to be a Silk backup.';
     return render();
   }
   try {
@@ -191,7 +191,7 @@ function unlock() {
 
 function renderMain() {
   app.innerHTML = `
-    <div class="row"><h1 class="grow">PassVault</h1><button class="link" id="lock">Lock</button></div>
+    <div class="row"><h1 class="grow">Silk</h1><button class="link" id="lock">Lock</button></div>
     <div class="tabs" role="tablist">
       <button role="tab" id="t-logins" aria-selected="${st.tab === 'logins'}">Logins</button>
       <button role="tab" id="t-codes" aria-selected="${st.tab === 'codes'}">Codes</button>
@@ -272,7 +272,7 @@ async function fill(e, code) {
     if (!ok) return null;
   }
   try {
-    const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: pvFill, args: [code ? '' : e.username, code ? '' : e.password, code || ''] });
+    const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: silkFill, args: [code ? '' : e.username, code ? '' : e.password, code || ''] });
     const r = res && res.result;
     if (code) {
       if (r && r.code) st.msg = 'Code filled.';

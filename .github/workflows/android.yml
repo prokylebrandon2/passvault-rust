@@ -29,7 +29,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Test the core crate
-        run: cargo test -p passvault-core
+        run: cargo test -p silk-core
 
   # The Brave/Chrome extension: Argon2id against the RFC 9106 vectors, vault opening, TOTP vectors.
   extension:
@@ -47,11 +47,11 @@ jobs:
       - name: Package
         run: |
           cd browser-extension
-          zip -r ../passvault-extension.zip manifest.json background.js popup.html popup.css popup.js src icons
+          zip -r ../silk-extension.zip manifest.json background.js popup.html popup.css popup.js src icons
       - uses: actions/upload-artifact@v7
         with:
-          name: passvault-brave-extension
-          path: passvault-extension.zip
+          name: silk-brave-extension
+          path: silk-extension.zip
 
   android:
     name: Build the Android app
@@ -96,13 +96,13 @@ jobs:
       - name: Build the Rust library for Android
         env:
           RUSTFLAGS: "-C link-arg=-Wl,--icf=all -C link-arg=-Wl,--pack-dyn-relocs=android"
-        run: cargo ndk --platform 26 -t arm64-v8a -o android/app/src/main/jniLibs build --release --package passvault
+        run: cargo ndk --platform 26 -t arm64-v8a -o android/app/src/main/jniLibs build --release --package silk
 
       - name: Check the native libs do not need libc++_shared.so
         run: |
           NDK="${ANDROID_NDK_HOME:-$ANDROID_NDK_LATEST_HOME}"
           READELF="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
-          for f in android/app/src/main/jniLibs/*/libpassvault.so; do
+          for f in android/app/src/main/jniLibs/*/libsilk.so; do
             echo "== $f"
             "$READELF" -d "$f" | grep NEEDED
             if "$READELF" -d "$f" | grep 'libc++_shared' > /dev/null; then
@@ -121,7 +121,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: passvault-debug-apk
+          name: silk-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 

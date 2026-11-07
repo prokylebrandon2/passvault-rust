@@ -1,5 +1,6 @@
 //! Process-wide state shared by the UI thread and the JNI entry points (autofill runs on Java threads).
-use passvault_core::{autofill, session::Session};
+use silk_core::session::{Outcome, Session};
+use silk_core::autofill;
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard};
 
@@ -10,8 +11,8 @@ static EVENTS: Mutex<VecDeque<Event>> = Mutex::new(VecDeque::new());
 pub enum Event {
     /// A file picked or written through Android's document picker. `status`: 0 ok, 1 cancelled, 2 failed.
     File { code: i32, status: i32, name: Option<String>, data: Option<Vec<u8>> },
-    /// Result of the background unlock or create.
-    Unlocked(Result<(), String>),
+    /// Result of the background unlock, create or conversion of an old vault.
+    Unlocked(Result<Outcome, String>),
     /// Result of a biometric prompt. `op`: 1 enroll, 2 unlock. `status`: 0 ok, 1 cancelled, 2 failed, 3 invalidated.
     Bio { op: i32, status: i32, key: Option<zeroize::Zeroizing<Vec<u8>>> },
 }

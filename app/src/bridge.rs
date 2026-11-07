@@ -1,5 +1,5 @@
 //! JNI in both directions. Java calls `Native.fill/onFile/lock` (exported below); Rust calls the public
-//! methods of `PvActivity` on the running activity. Everything crossing the boundary is a string, int,
+//! methods of `SilkActivity` on the running activity. Everything crossing the boundary is a string, int,
 //! boolean or byte array.
 use crate::state::{self, Event};
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
@@ -137,7 +137,7 @@ pub fn bio_enroll(key: &[u8]) {
 // ---- Java -> Rust ----
 
 #[no_mangle]
-pub extern "system" fn Java_app_passvault_Native_fill<'l>(
+pub extern "system" fn Java_app_silk_Native_fill<'l>(
     mut env: JNIEnv<'l>,
     _class: JClass<'l>,
     request: JString<'l>,
@@ -148,7 +148,7 @@ pub extern "system" fn Java_app_passvault_Native_fill<'l>(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_app_passvault_Native_onFile<'l>(
+pub extern "system" fn Java_app_silk_Native_onFile<'l>(
     mut env: JNIEnv<'l>,
     _class: JClass<'l>,
     code: jint,
@@ -162,12 +162,12 @@ pub extern "system" fn Java_app_passvault_Native_onFile<'l>(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_app_passvault_Native_lock<'l>(_env: JNIEnv<'l>, _class: JClass<'l>) {
+pub extern "system" fn Java_app_silk_Native_lock<'l>(_env: JNIEnv<'l>, _class: JClass<'l>) {
     state::lock();
 }
 
 #[no_mangle]
-pub extern "system" fn Java_app_passvault_Native_onBio<'l>(
+pub extern "system" fn Java_app_silk_Native_onBio<'l>(
     env: JNIEnv<'l>,
     _class: JClass<'l>,
     op: jint,

@@ -3544,35 +3544,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "passvault"
-version = "0.1.0"
-dependencies = [
- "android-activity 0.6.1",
- "android_logger",
- "jni 0.21.1",
- "log",
- "passvault-core",
- "slint",
- "slint-build",
- "zeroize",
-]
-
-[[package]]
-name = "passvault-core"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "argon2",
- "getrandom 0.2.17",
- "hmac",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "zeroize",
-]
-
-[[package]]
 name = "password-hash"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4278,6 +4249,35 @@ checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
 dependencies = [
  "errno",
  "libc",
+]
+
+[[package]]
+name = "silk"
+version = "1.0.0"
+dependencies = [
+ "android-activity 0.6.1",
+ "android_logger",
+ "jni 0.21.1",
+ "log",
+ "silk-core",
+ "slint",
+ "slint-build",
+ "zeroize",
+]
+
+[[package]]
+name = "silk-core"
+version = "1.0.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "getrandom 0.2.17",
+ "hmac",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "zeroize",
 ]
 
 [[package]]
