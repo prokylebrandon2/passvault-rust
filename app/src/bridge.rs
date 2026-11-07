@@ -5,6 +5,8 @@ use crate::state::{self, Event};
 use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue};
 use jni::sys::jint;
 use jni::{JNIEnv, JavaVM};
+use silk_core::firebase::{Http, HttpRequest, HttpResponse};
+use silk_core::Error;
 use std::sync::Mutex;
 
 struct Bridge {
@@ -20,7 +22,8 @@ pub fn init(app: &slint::android::AndroidApp) {
     let activity = {
         let env = vm.attach_current_thread().expect("attach to the JVM");
         let obj = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
-        env.new_global_ref(&obj).expect("global ref to the activity")
+        env.new_global_ref(&obj)
+            .expect("global ref to the activity")
     };
     // android_main runs again if the activity is recreated in the same process: keep the newest one.
     *BRIDGE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Bridge { vm, activity });
@@ -39,7 +42,10 @@ fn with_env<R>(f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<R>) 
 }
 
 pub fn pick_file(code: i32) {
-    with_env(|e, a| e.call_method(a, "pickFile", "(I)V", &[JValue::Int(code)]).map(|_| ()));
+    with_env(|e, a| {
+        e.call_method(a, "pickFile", "(I)V", &[JValue::Int(code)])
+            .map(|_| ())
+    });
 }
 
 pub fn create_file(code: i32, name: &str, data: &[u8]) {
@@ -59,7 +65,13 @@ pub fn create_file(code: i32, name: &str, data: &[u8]) {
 pub fn copy(text: &str) {
     with_env(|e, a| {
         let t: JObject = e.new_string(text)?.into();
-        e.call_method(a, "copyToClipboard", "(Ljava/lang/String;)V", &[JValue::Object(&t)]).map(|_| ())
+        e.call_method(
+            a,
+            "copyToClipboard",
+            "(Ljava/lang/String;)V",
+            &[JValue::Object(&t)],
+        )
+        .map(|_| ())
     });
 }
 
@@ -74,8 +86,86 @@ pub fn forget_key_file() {
 pub fn auto_backup(data: &[u8]) {
     with_env(|e, a| {
         let d: JObject = e.byte_array_from_slice(data)?.into();
-        e.call_method(a, "autoBackup", "([B)V", &[JValue::Object(&d)]).map(|_| ())
+        e.call_method(a, "autoBackup", "([B)V", &[JValue::Object(&d)])
+            .map(|_| ())
     });
+}
+
+/// Writes the new key file bytes (with the saved cloud sign-in) into the remembered key file.
+/// Java checks that the secret in the file on disk is the same before it touches anything.
+pub fn save_key_file(data: &[u8]) {
+    with_env(|e, a| {
+        let d: JObject = e.byte_array_from_slice(data)?.into();
+        e.call_method(a, "saveKeyFile", "([B)V", &[JValue::Object(&d)])
+            .map(|_| ())
+    });
+}
+
+/// `(web api key, storage bucket)` from `res/values/firebase.xml`.
+pub fn firebase_config() -> Option<(String, String)> {
+    let raw = with_env(|e, a| {
+        let v = e
+            .call_method(a, "firebaseConfig", "()Ljava/lang/String;", &[])?
+            .l()?;
+        let s: String = e.get_string(&JString::from(v))?.into();
+        Ok(s)
+    })?;
+    let (key, bucket) = raw.split_once('\n')?;
+    Some((key.to_owned(), bucket.to_owned()))
+}
+
+/// The core's `Http` trait over `SilkActivity.http` (Java's `HttpURLConnection`). Blocking: call it from a worker thread.
+pub struct JavaHttp;
+
+impl Http for JavaHttp {
+    fn send(&self, req: &HttpRequest) -> Result<HttpResponse, Error> {
+        let headers = req
+            .headers
+            .iter()
+            .map(|(k, v)| format!("{k}: {v}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let reply = with_env(|e, a| {
+            let m: JObject = e.new_string(req.method)?.into();
+            let u: JObject = e.new_string(&req.url)?.into();
+            let h: JObject = e.new_string(&headers)?.into();
+            let b: JObject = e.byte_array_from_slice(&req.body)?.into();
+            let r = e
+                .call_method(
+                    a,
+                    "http",
+                    "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[B)[B",
+                    &[
+                        JValue::Object(&m),
+                        JValue::Object(&u),
+                        JValue::Object(&h),
+                        JValue::Object(&b),
+                    ],
+                )?
+                .l()?;
+            if r.as_raw().is_null() {
+                return Ok(Vec::new());
+            }
+            let arr = JByteArray::from(r);
+            e.convert_byte_array(&arr)
+        });
+        let bytes =
+            reply.ok_or_else(|| Error::Remote("the network layer isn't available".into()))?;
+        if bytes.len() < 2 {
+            return Err(Error::Remote("no answer".into()));
+        }
+        // Two bytes of status, then the body. Status 0: no answer at all, the body says why.
+        let status = u16::from_be_bytes([bytes[0], bytes[1]]);
+        if status == 0 {
+            return Err(Error::Remote(
+                String::from_utf8_lossy(&bytes[2..]).into_owned(),
+            ));
+        }
+        Ok(HttpResponse {
+            status,
+            body: bytes[2..].to_vec(),
+        })
+    }
 }
 
 pub fn finish_with_fill() {
@@ -83,7 +173,10 @@ pub fn finish_with_fill() {
 }
 
 pub fn open_autofill_settings() {
-    with_env(|e, a| e.call_method(a, "openAutofillSettings", "()V", &[]).map(|_| ()));
+    with_env(|e, a| {
+        e.call_method(a, "openAutofillSettings", "()V", &[])
+            .map(|_| ())
+    });
 }
 
 fn call_bool(name: &str) -> bool {
@@ -100,7 +193,9 @@ pub fn is_dark() -> bool {
 
 pub fn app_version() -> String {
     with_env(|e, a| {
-        let v = e.call_method(a, "appVersion", "()Ljava/lang/String;", &[])?.l()?;
+        let v = e
+            .call_method(a, "appVersion", "()Ljava/lang/String;", &[])?
+            .l()?;
         let s: String = e.get_string(&JString::from(v))?.into();
         Ok(s)
     })
@@ -130,7 +225,8 @@ pub fn bio_disable() {
 pub fn bio_enroll(key: &[u8]) {
     with_env(|e, a| {
         let k: JObject = e.byte_array_from_slice(key)?.into();
-        e.call_method(a, "bioEnroll", "([B)V", &[JValue::Object(&k)]).map(|_| ())
+        e.call_method(a, "bioEnroll", "([B)V", &[JValue::Object(&k)])
+            .map(|_| ())
     });
 }
 
@@ -142,9 +238,13 @@ pub extern "system" fn Java_app_silk_Native_fill<'l>(
     _class: JClass<'l>,
     request: JString<'l>,
 ) -> JString<'l> {
-    let req: String = env.get_string(&request).map(String::from).unwrap_or_default();
+    let req: String = env
+        .get_string(&request)
+        .map(String::from)
+        .unwrap_or_default();
     let reply = state::fill(&req);
-    env.new_string(reply).unwrap_or_else(|_| JString::from(JObject::null()))
+    env.new_string(reply)
+        .unwrap_or_else(|_| JString::from(JObject::null()))
 }
 
 #[no_mangle]
@@ -156,9 +256,22 @@ pub extern "system" fn Java_app_silk_Native_onFile<'l>(
     name: JString<'l>,
     data: JByteArray<'l>,
 ) {
-    let name = if name.as_raw().is_null() { None } else { env.get_string(&name).ok().map(String::from) };
-    let data = if data.as_raw().is_null() { None } else { env.convert_byte_array(&data).ok() };
-    state::push(Event::File { code, status, name, data });
+    let name = if name.as_raw().is_null() {
+        None
+    } else {
+        env.get_string(&name).ok().map(String::from)
+    };
+    let data = if data.as_raw().is_null() {
+        None
+    } else {
+        env.convert_byte_array(&data).ok()
+    };
+    state::push(Event::File {
+        code,
+        status,
+        name,
+        data,
+    });
 }
 
 #[no_mangle]
@@ -177,7 +290,9 @@ pub extern "system" fn Java_app_silk_Native_onBio<'l>(
     let key = if key.as_raw().is_null() {
         None
     } else {
-        env.convert_byte_array(&key).ok().map(zeroize::Zeroizing::new)
+        env.convert_byte_array(&key)
+            .ok()
+            .map(zeroize::Zeroizing::new)
     };
     state::push(Event::Bio { op, status, key });
 }

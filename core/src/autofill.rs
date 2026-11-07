@@ -46,7 +46,10 @@ fn detect(nodes: &[Node]) -> (Option<usize>, Option<usize>) {
                 && (variation == VARIATION_PASSWORD
                     || variation == VARIATION_VISIBLE_PASSWORD
                     || variation == VARIATION_WEB_PASSWORD));
-        let is_user = n.hints.iter().any(|h| h == "username" || h == "emailAddress");
+        let is_user = n
+            .hints
+            .iter()
+            .any(|h| h == "username" || h == "emailAddress");
         if is_pass {
             if pass.is_none() {
                 pass = Some(i);
@@ -73,7 +76,13 @@ pub fn url_matches(entry_url: &str, pkg: &str, domain: Option<&str>) -> bool {
         return !app.is_empty() && app == pkg.to_lowercase();
     }
     let rest = u.split_once("://").map(|x| x.1).unwrap_or(&u);
-    let host = rest.split('/').next().unwrap_or("").split(':').next().unwrap_or("");
+    let host = rest
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
     let host = host.strip_prefix("www.").unwrap_or(host);
     let Some(domain) = domain else { return false };
     let domain = domain.to_lowercase();
@@ -100,7 +109,11 @@ pub fn handle(request: &str, entries: Option<&[Entry]>) -> String {
         .iter()
         .filter(|e| url_matches(&e.url, &req.pkg, req.domain.as_deref()))
         .map(|e| {
-            let label = if e.username.is_empty() { e.title.clone() } else { format!("{} ({})", e.title, e.username) };
+            let label = if e.username.is_empty() {
+                e.title.clone()
+            } else {
+                format!("{} ({})", e.title, e.username)
+            };
             json!({ "label": label, "user": e.username, "pass": e.password })
         })
         .collect();
@@ -139,7 +152,10 @@ mod tests {
 
     #[test]
     fn finds_fields_by_hints_and_html_type() {
-        let r = handle(&form(r#"[{"hints":["emailAddress"]},{"html":"password"}]"#), None);
+        let r = handle(
+            &form(r#"[{"hints":["emailAddress"]},{"html":"password"}]"#),
+            None,
+        );
         let v: serde_json::Value = serde_json::from_str(&r).unwrap();
         assert_eq!((v["user"].as_u64(), v["pass"].as_u64()), (Some(0), Some(1)));
     }
@@ -158,7 +174,10 @@ mod tests {
             entry("Other", "you", "https://example.com"),
             entry("Lookalike", "x", "https://evilgithub.com"),
         ];
-        let r = handle(&form(r#"[{"hints":["username"]},{"hints":["password"]}]"#), Some(&entries));
+        let r = handle(
+            &form(r#"[{"hints":["username"]},{"hints":["password"]}]"#),
+            Some(&entries),
+        );
         let v: serde_json::Value = serde_json::from_str(&r).unwrap();
         assert_eq!(v["state"], "ok");
         assert_eq!(v["items"].as_array().unwrap().len(), 1);
@@ -169,12 +188,32 @@ mod tests {
     #[test]
     fn url_rules() {
         assert!(url_matches("github.com", "x", Some("github.com")));
-        assert!(url_matches("https://www.github.com/a?b", "x", Some("gist.github.com")));
-        assert!(url_matches("https://github.com:8443", "x", Some("www.github.com")));
-        assert!(!url_matches("https://github.com", "x", Some("evilgithub.com")));
+        assert!(url_matches(
+            "https://www.github.com/a?b",
+            "x",
+            Some("gist.github.com")
+        ));
+        assert!(url_matches(
+            "https://github.com:8443",
+            "x",
+            Some("www.github.com")
+        ));
+        assert!(!url_matches(
+            "https://github.com",
+            "x",
+            Some("evilgithub.com")
+        ));
         assert!(!url_matches("https://github.com", "x", None));
         assert!(!url_matches("", "x", Some("github.com")));
-        assert!(url_matches("androidapp://com.example.app", "com.Example.App", None));
-        assert!(!url_matches("androidapp://com.example.app", "com.other", Some("example.com")));
+        assert!(url_matches(
+            "androidapp://com.example.app",
+            "com.Example.App",
+            None
+        ));
+        assert!(!url_matches(
+            "androidapp://com.example.app",
+            "com.other",
+            Some("example.com")
+        ));
     }
 }

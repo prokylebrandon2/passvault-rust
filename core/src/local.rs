@@ -11,6 +11,7 @@
 //! vault.interim    the vault file (vault.skln once Kiln's archive is in)
 //! vault.pvlt       a vault from before the key slot existed; converted on first unlock, then removed
 //! seen.rev         the highest vault revision this device has seen (rollback guard)
+//! sync.uid         the cloud account this copy was last synced with (see `sync`)
 //! ```
 //! Writes go to a temporary file first and are renamed into place, so a crash leaves either the old
 //! file or the new one, never half of each.
@@ -23,6 +24,7 @@ use std::path::{Path, PathBuf};
 /// The vault file of the old, pre-key-slot format.
 pub const LEGACY_FILE: &str = "vault.pvlt";
 const SEEN_FILE: &str = "seen.rev";
+const LINK_FILE: &str = "sync.uid";
 
 #[derive(Clone, Debug)]
 pub struct DirStore {
@@ -106,6 +108,30 @@ impl DirStore {
     pub fn forget_revision(&self) -> Result<(), Error> {
         remove_if_exists(&self.dir.join(SEEN_FILE))
     }
+
+    // ---- cloud link ----
+    //
+    // `sync.uid` records which cloud account this device's vault has been synced with. Until it
+    // matches the signed-in account, `sync::run` refuses to copy anything over a vault that differs.
+
+    /// The uid of the account this copy was last synced with.
+    pub fn linked_uid(&self) -> Option<String> {
+        fs::read_to_string(self.dir.join(LINK_FILE))
+            .ok()
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+    }
+
+    pub fn link(&self, uid: &str) -> Result<(), Error> {
+        if self.linked_uid().as_deref() == Some(uid) {
+            return Ok(());
+        }
+        write_atomic(&self.dir.join(LINK_FILE), uid.as_bytes())
+    }
+
+    pub fn unlink(&self) -> Result<(), Error> {
+        remove_if_exists(&self.dir.join(LINK_FILE))
+    }
 }
 
 impl RemoteStore for DirStore {
@@ -187,6 +213,20 @@ mod tests {
         assert_eq!(s.read_legacy().unwrap().unwrap(), b"old");
         s.remove_legacy().unwrap();
         assert!(!s.has_legacy());
+    }
+
+    #[test]
+    fn the_cloud_link_is_remembered_and_can_be_dropped() {
+        let s = temp_store();
+        assert_eq!(s.linked_uid(), None);
+        s.link("uid1").unwrap();
+        s.link("uid1").unwrap();
+        assert_eq!(s.linked_uid().as_deref(), Some("uid1"));
+        s.link("uid2").unwrap();
+        assert_eq!(s.linked_uid().as_deref(), Some("uid2"));
+        s.unlink().unwrap();
+        s.unlink().unwrap(); // dropping what isn't there is fine
+        assert_eq!(s.linked_uid(), None);
     }
 
     #[test]

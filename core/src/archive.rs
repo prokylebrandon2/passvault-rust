@@ -23,7 +23,10 @@ pub struct Member {
 
 impl Member {
     pub fn new(name: &str, data: Vec<u8>) -> Member {
-        Member { name: name.to_owned(), data }
+        Member {
+            name: name.to_owned(),
+            data,
+        }
     }
 }
 

@@ -19,16 +19,24 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { generator: GenOptions::default(), auto_generate: true }
+        Settings {
+            generator: GenOptions::default(),
+            auto_generate: true,
+        }
     }
 }
 
 impl Settings {
     /// Missing or unreadable files give the defaults.
     pub fn load(dir: &Path) -> Settings {
-        let parsed: Option<Settings> = fs::read(dir.join(FILE)).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        let parsed: Option<Settings> = fs::read(dir.join(FILE))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok());
         match parsed {
-            Some(s) => Settings { generator: s.generator.normalized(), auto_generate: s.auto_generate },
+            Some(s) => Settings {
+                generator: s.generator.normalized(),
+                auto_generate: s.auto_generate,
+            },
             None => Settings::default(),
         }
     }

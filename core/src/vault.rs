@@ -46,14 +46,20 @@ pub struct Kdf {
 
 impl Default for Kdf {
     fn default() -> Self {
-        Kdf { t: 3, mem_kib: 65536, p: 4 }
+        Kdf {
+            t: 3,
+            mem_kib: 65536,
+            p: 4,
+        }
     }
 }
 
 impl Kdf {
     /// Rejects absurd costs so a crafted file can't exhaust memory or hang the app.
     pub(crate) fn is_sane(&self) -> bool {
-        (1..=32).contains(&self.t) && (8..=(1 << 18)).contains(&self.mem_kib) && (1..=16).contains(&self.p)
+        (1..=32).contains(&self.t)
+            && (8..=(1 << 18)).contains(&self.mem_kib)
+            && (1..=16).contains(&self.p)
     }
 }
 
@@ -91,7 +97,11 @@ impl Header {
         }
         let mut salt = [0u8; 16];
         salt.copy_from_slice(&f[15..31]);
-        Ok(Header { key_file: (f[5] & 1) == 1, kdf: Kdf { t, mem_kib, p }, salt })
+        Ok(Header {
+            key_file: (f[5] & 1) == 1,
+            kdf: Kdf { t, mem_kib, p },
+            salt,
+        })
     }
 }
 
@@ -125,9 +135,17 @@ impl Vault {
     pub fn create(password: &str, key_file: Option<&[u8]>, kdf: Kdf) -> Result<Vault, Error> {
         let mut salt = [0u8; 16];
         getrandom::getrandom(&mut salt).map_err(|_| Error::Random)?;
-        let header = Header { key_file: key_file.is_some(), kdf, salt };
+        let header = Header {
+            key_file: key_file.is_some(),
+            kdf,
+            salt,
+        };
         let key = derive_key(password, key_file, &header)?;
-        Ok(Vault { header, key, entries: Vec::new() })
+        Ok(Vault {
+            header,
+            key,
+            entries: Vec::new(),
+        })
     }
 
     /// Checks that `file` looks like a vault without needing the password.
@@ -164,11 +182,21 @@ impl Vault {
         let (nonce, ciphertext) = rest.split_at(NONCE_LEN);
         let cipher = Aes256Gcm::new_from_slice(&key[..]).map_err(|_| Error::Crypto)?;
         let plain = cipher
-            .decrypt(Nonce::from_slice(nonce), Payload { msg: ciphertext, aad })
+            .decrypt(
+                Nonce::from_slice(nonce),
+                Payload {
+                    msg: ciphertext,
+                    aad,
+                },
+            )
             .map_err(|_| Error::WrongCredentials)?;
         let plain = Zeroizing::new(plain);
         let doc: Doc = serde_json::from_slice(&plain).map_err(|_| Error::Corrupt)?;
-        Ok(Vault { header, key, entries: doc.entries })
+        Ok(Vault {
+            header,
+            key,
+            entries: doc.entries,
+        })
     }
 
     /// Encrypts the current entries with a fresh nonce. Cheap: the key derivation isn't repeated.
@@ -176,11 +204,20 @@ impl Vault {
         let mut nonce = [0u8; NONCE_LEN];
         getrandom::getrandom(&mut nonce).map_err(|_| Error::Random)?;
         let aad = self.header.to_bytes();
-        let body = serde_json::to_vec(&DocRef { entries: &self.entries }).map_err(|_| Error::Corrupt)?;
+        let body = serde_json::to_vec(&DocRef {
+            entries: &self.entries,
+        })
+        .map_err(|_| Error::Corrupt)?;
         let body = Zeroizing::new(body);
         let cipher = Aes256Gcm::new_from_slice(&self.key[..]).map_err(|_| Error::Crypto)?;
         let ciphertext = cipher
-            .encrypt(Nonce::from_slice(&nonce), Payload { msg: &body[..], aad: &aad[..] })
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: &body[..],
+                    aad: &aad[..],
+                },
+            )
             .map_err(|_| Error::Crypto)?;
         let mut out = Vec::with_capacity(HEADER_LEN + NONCE_LEN + ciphertext.len());
         out.extend_from_slice(&aad);
@@ -202,11 +239,17 @@ impl Vault {
 }
 
 /// password -> SHA-256, [then SHA-256(that || SHA-256(key file))] -> Argon2id -> 32-byte key.
-fn derive_key(password: &str, key_file: Option<&[u8]>, h: &Header) -> Result<Zeroizing<[u8; 32]>, Error> {
+fn derive_key(
+    password: &str,
+    key_file: Option<&[u8]>,
+    h: &Header,
+) -> Result<Zeroizing<[u8; 32]>, Error> {
     derive_key_raw(password, key_file, h.kdf, &h.salt)
 }
 
 /// Same derivation, without a vault header. The key slot that wraps the VEK (see `keyslot`) uses it too.
+/// A Silk key file contributes only its secret (see `keyfile::material`), so the sign-in saved
+/// inside it can change without changing the key; any other file is hashed whole, as always.
 pub(crate) fn derive_key_raw(
     password: &str,
     key_file: Option<&[u8]>,
@@ -218,7 +261,7 @@ pub(crate) fn derive_key_raw(
     if let Some(kf) = key_file {
         let mut hasher = Sha256::new();
         hasher.update(&ikm[..]);
-        hasher.update(Sha256::digest(kf));
+        hasher.update(Sha256::digest(crate::keyfile::material(kf)));
         ikm.copy_from_slice(&hasher.finalize());
     }
     let params = Params::new(kdf.mem_kib, kdf.t, kdf.p, Some(32)).map_err(|_| Error::Corrupt)?;
@@ -237,7 +280,10 @@ pub fn random_bytes(n: usize) -> Vec<u8> {
 
 /// A random 128-bit id as lowercase hex.
 pub fn new_id() -> String {
-    random_bytes(16).iter().map(|b| format!("{b:02x}")).collect()
+    random_bytes(16)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Uniformly random password from an alphabet without look-alike characters.
@@ -260,7 +306,11 @@ pub fn generate_password(len: usize) -> String {
 mod tests {
     use super::*;
 
-    const FAST: Kdf = Kdf { t: 1, mem_kib: 64, p: 1 };
+    const FAST: Kdf = Kdf {
+        t: 1,
+        mem_kib: 64,
+        p: 1,
+    };
 
     fn entry(id: &str, title: &str) -> Entry {
         Entry {
@@ -286,14 +336,26 @@ mod tests {
         assert_eq!(back.entries[0].title, "GitHub");
         assert_eq!(back.entries[0].otp, "JBSWY3DPEHPK3PXP");
 
-        assert_eq!(Vault::open(&bytes, "wrong", Some(&kf)).err(), Some(Error::WrongCredentials));
-        assert_eq!(Vault::open(&bytes, "correct horse", None).err(), Some(Error::KeyFileRequired));
-        assert_eq!(Vault::open(&bytes, "correct horse", Some(&[0u8; 64])).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            Vault::open(&bytes, "wrong", Some(&kf)).err(),
+            Some(Error::WrongCredentials)
+        );
+        assert_eq!(
+            Vault::open(&bytes, "correct horse", None).err(),
+            Some(Error::KeyFileRequired)
+        );
+        assert_eq!(
+            Vault::open(&bytes, "correct horse", Some(&[0u8; 64])).err(),
+            Some(Error::WrongCredentials)
+        );
 
         let mut tampered = bytes.clone();
         let last = tampered.len() - 1;
         tampered[last] ^= 1;
-        assert_eq!(Vault::open(&tampered, "correct horse", Some(&kf)).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            Vault::open(&tampered, "correct horse", Some(&kf)).err(),
+            Some(Error::WrongCredentials)
+        );
 
         // The header is authenticated too: flipping a KDF byte must not decrypt.
         let mut hdr = bytes.clone();
@@ -310,7 +372,10 @@ mod tests {
         let key = v.export_key();
         let back = Vault::open_with_key(&bytes, &key).unwrap();
         assert_eq!(back.entries[0].title, "GitHub");
-        assert_eq!(Vault::open_with_key(&bytes, &[0u8; 32]).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            Vault::open_with_key(&bytes, &[0u8; 32]).err(),
+            Some(Error::WrongCredentials)
+        );
     }
 
     #[test]
@@ -318,7 +383,10 @@ mod tests {
         let v = Vault::create("password1", None, FAST).unwrap();
         let bytes = v.seal().unwrap();
         assert!(Vault::open(&bytes, "password1", None).is_ok());
-        assert_eq!(Vault::open(&bytes, "password1", Some(&[1u8; 8])).err(), Some(Error::KeyFileNotUsed));
+        assert_eq!(
+            Vault::open(&bytes, "password1", Some(&[1u8; 8])).err(),
+            Some(Error::KeyFileNotUsed)
+        );
     }
 
     #[test]
@@ -340,7 +408,10 @@ mod tests {
 
     #[test]
     fn rejects_garbage_and_absurd_costs() {
-        assert_eq!(Vault::validate(b"not a vault").err(), Some(Error::NotAVault));
+        assert_eq!(
+            Vault::validate(b"not a vault").err(),
+            Some(Error::NotAVault)
+        );
         let v = Vault::create("password1", None, FAST).unwrap();
         let mut bytes = v.seal().unwrap();
         bytes[10..14].copy_from_slice(&u32::MAX.to_be_bytes());

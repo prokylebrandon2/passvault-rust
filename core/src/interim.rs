@@ -13,11 +13,11 @@
 //!
 //! The 14-byte header is bound in as associated data. Every length is checked against what is left
 //! in the buffer, so a crafted file can't make the reader allocate or read past its input.
+use crate::archive::{Archiver, Member, Opened};
 use crate::error::Error;
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use std::collections::HashSet;
-use crate::archive::{Archiver, Member, Opened};
 use zeroize::Zeroizing;
 
 const MAGIC: &[u8; 4] = b"SKIM";
@@ -36,7 +36,9 @@ fn check_name(name: &str) -> Result<(), Error> {
         && name.len() <= MAX_NAME_LEN
         && name != "."
         && name != ".."
-        && !name.chars().any(|c| c == '/' || c == '\\' || c.is_control());
+        && !name
+            .chars()
+            .any(|c| c == '/' || c == '\\' || c.is_control());
     if ok {
         Ok(())
     } else {
@@ -83,7 +85,11 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], Error> {
-        let end = self.pos.checked_add(n).filter(|&e| e <= self.buf.len()).ok_or(Error::Corrupt)?;
+        let end = self
+            .pos
+            .checked_add(n)
+            .filter(|&e| e <= self.buf.len())
+            .ok_or(Error::Corrupt)?;
         let s = &self.buf[self.pos..end];
         self.pos = end;
         Ok(s)
@@ -119,7 +125,10 @@ pub fn unpack(bytes: &[u8]) -> Result<Vec<Member>, Error> {
         }
         let data_len = r.u32()? as usize;
         let data = r.take(data_len)?;
-        out.push(Member { name: name.to_owned(), data: data.to_vec() });
+        out.push(Member {
+            name: name.to_owned(),
+            data: data.to_vec(),
+        });
     }
     if r.pos != bytes.len() {
         return Err(Error::Corrupt);
@@ -138,7 +147,9 @@ pub fn validate(file: &[u8]) -> Result<(), Error> {
 /// The revision stored in the (plain) header, without decrypting anything.
 pub fn revision(file: &[u8]) -> Result<u64, Error> {
     validate(file)?;
-    Ok(u64::from_be_bytes(file[6..14].try_into().map_err(|_| Error::Corrupt)?))
+    Ok(u64::from_be_bytes(
+        file[6..14].try_into().map_err(|_| Error::Corrupt)?,
+    ))
 }
 
 /// Archives `members` and encrypts them with the VEK under a fresh random nonce.
@@ -152,7 +163,13 @@ pub fn seal(vek: &[u8; 32], revision: u64, members: &[Member]) -> Result<Vec<u8>
     getrandom::getrandom(&mut nonce).map_err(|_| Error::Random)?;
     let cipher = Aes256Gcm::new_from_slice(&vek[..]).map_err(|_| Error::Crypto)?;
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), Payload { msg: &archive[..], aad: &header[..] })
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: &archive[..],
+                aad: &header[..],
+            },
+        )
         .map_err(|_| Error::Crypto)?;
     let mut out = Vec::with_capacity(HEADER_LEN + NONCE_LEN + ciphertext.len());
     out.extend_from_slice(&header);
@@ -170,7 +187,13 @@ pub fn open(vek: &[u8; 32], file: &[u8]) -> Result<Opened, Error> {
     let (nonce, ciphertext) = rest.split_at(NONCE_LEN);
     let cipher = Aes256Gcm::new_from_slice(&vek[..]).map_err(|_| Error::Crypto)?;
     let plain = cipher
-        .decrypt(Nonce::from_slice(nonce), Payload { msg: ciphertext, aad })
+        .decrypt(
+            Nonce::from_slice(nonce),
+            Payload {
+                msg: ciphertext,
+                aad,
+            },
+        )
         .map_err(|_| Error::Corrupt)?;
     let plain = Zeroizing::new(plain);
     let members = unpack(&plain)?;
@@ -225,7 +248,10 @@ mod tests {
 
     #[test]
     fn every_seal_uses_a_fresh_nonce() {
-        assert_ne!(seal(&KEY, 1, &sample()).unwrap(), seal(&KEY, 1, &sample()).unwrap());
+        assert_ne!(
+            seal(&KEY, 1, &sample()).unwrap(),
+            seal(&KEY, 1, &sample()).unwrap()
+        );
     }
 
     #[test]
@@ -254,7 +280,10 @@ mod tests {
     fn unpack_rejects_truncated_and_trailing_data() {
         let packed = pack(&sample()).unwrap().to_vec();
         assert_eq!(unpack(&packed).unwrap(), sample());
-        assert_eq!(unpack(&packed[..packed.len() - 1]).err(), Some(Error::Corrupt));
+        assert_eq!(
+            unpack(&packed[..packed.len() - 1]).err(),
+            Some(Error::Corrupt)
+        );
         assert_eq!(unpack(&packed[..10]).err(), Some(Error::Corrupt));
         let mut extra = packed.clone();
         extra.push(0);
@@ -268,7 +297,11 @@ mod tests {
         let dup = [Member::new("a", vec![]), Member::new("a", vec![])];
         assert_eq!(pack(&dup).err(), Some(Error::Corrupt));
         for bad in ["", "..", ".", "a/b", "a\\b", "nul\0"] {
-            assert_eq!(pack(&[Member::new(bad, vec![])]).err(), Some(Error::Corrupt), "{bad:?}");
+            assert_eq!(
+                pack(&[Member::new(bad, vec![])]).err(),
+                Some(Error::Corrupt),
+                "{bad:?}"
+            );
         }
     }
 }

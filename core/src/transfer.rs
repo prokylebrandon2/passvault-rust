@@ -25,13 +25,18 @@ fn bad(msg: &str) -> Error {
 /// Reads a Proton Pass JSON or CSV export (or a generic login CSV).
 pub fn import(data: &[u8]) -> Result<Imported, Error> {
     if data.starts_with(b"PK") {
-        return Err(bad("This is a .zip file. Unzip it and choose the Data.json inside."));
+        return Err(bad(
+            "This is a .zip file. Unzip it and choose the Data.json inside.",
+        ));
     }
-    let text = std::str::from_utf8(data).map_err(|_| bad("This file isn't text. Choose a JSON or CSV export."))?;
+    let text = std::str::from_utf8(data)
+        .map_err(|_| bad("This file isn't text. Choose a JSON or CSV export."))?;
     let text = text.trim_start_matches('\u{feff}');
     let head = text.trim_start();
     if head.starts_with("-----BEGIN PGP") {
-        return Err(bad("This export is encrypted. In Proton Pass export again without encryption."));
+        return Err(bad(
+            "This export is encrypted. In Proton Pass export again without encryption.",
+        ));
     }
     if head.starts_with('{') {
         import_json(head)
@@ -101,12 +106,18 @@ fn flatten(content: Option<&Value>) -> Vec<String> {
 }
 
 fn extra_fields(data: &Value) -> Vec<String> {
-    let Some(list) = data.get("extraFields").and_then(Value::as_array) else { return Vec::new() };
+    let Some(list) = data.get("extraFields").and_then(Value::as_array) else {
+        return Vec::new();
+    };
     list.iter()
         .filter_map(|f| {
             let name = f.get("fieldName")?.as_str()?.trim();
             let d = f.get("data")?;
-            let val = d.get("content").or_else(|| d.get("totpUri"))?.as_str()?.trim();
+            let val = d
+                .get("content")
+                .or_else(|| d.get("totpUri"))?
+                .as_str()?
+                .trim();
             if name.is_empty() || val.is_empty() {
                 None
             } else {
@@ -117,7 +128,15 @@ fn extra_fields(data: &Value) -> Vec<String> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn make_login(title: &str, email: &str, username: &str, password: &str, urls: &[String], totp: &str, note: &str) -> Entry {
+fn make_login(
+    title: &str,
+    email: &str,
+    username: &str,
+    password: &str,
+    urls: &[String],
+    totp: &str,
+    note: &str,
+) -> Entry {
     let (email, username) = (email.trim(), username.trim());
     let login = if email.is_empty() { username } else { email };
     let mut extra: Vec<String> = Vec::new();
@@ -140,15 +159,26 @@ fn make_login(title: &str, email: &str, username: &str, password: &str, urls: &[
     };
     let mut notes = note.to_string();
     append_lines(&mut notes, extra);
-    Entry { id: new_id(), title, username: login.to_string(), password: password.to_string(), url, otp: totp.trim().to_string(), notes }
+    Entry {
+        id: new_id(),
+        title,
+        username: login.to_string(),
+        password: password.to_string(),
+        url,
+        otp: totp.trim().to_string(),
+        notes,
+    }
 }
 
 // ---------------------------------------------------------------- JSON import
 
 fn import_json(text: &str) -> Result<Imported, Error> {
-    let root: Value = serde_json::from_str(text).map_err(|_| bad("That JSON file couldn't be read."))?;
+    let root: Value =
+        serde_json::from_str(text).map_err(|_| bad("That JSON file couldn't be read."))?;
     if root.get("encrypted").and_then(Value::as_bool) == Some(true) {
-        return Err(bad("This export is encrypted. In Proton Pass export again without encryption."));
+        return Err(bad(
+            "This export is encrypted. In Proton Pass export again without encryption.",
+        ));
     }
     let vaults = root
         .get("vaults")
@@ -156,7 +186,9 @@ fn import_json(text: &str) -> Result<Imported, Error> {
         .ok_or_else(|| bad("This doesn't look like a Proton Pass export."))?;
     let mut out = Imported::default();
     for vault in vaults.values() {
-        let Some(items) = vault.get("items").and_then(Value::as_array) else { continue };
+        let Some(items) = vault.get("items").and_then(Value::as_array) else {
+            continue;
+        };
         for item in items {
             match json_item(item, &mut out.passkeys) {
                 Some(e) => out.entries.push(e),
@@ -184,7 +216,13 @@ fn json_item(item: &Value, passkeys: &mut usize) -> Option<Entry> {
         let urls: Vec<String> = c
             .get("urls")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(|u| u.trim().to_string()).filter(|u| !u.is_empty()).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(|u| u.trim().to_string())
+                    .filter(|u| !u.is_empty())
+                    .collect()
+            })
             .unwrap_or_default();
         let email = text(c.get("itemEmail"));
         let mut user = text(c.get("itemUsername"));
@@ -194,7 +232,15 @@ fn json_item(item: &Value, passkeys: &mut usize) -> Option<Entry> {
         if let Some(n) = c.get("passkeys").and_then(Value::as_array).map(Vec::len) {
             *passkeys += n;
         }
-        let mut e = make_login(&title, &email, &user, &raw(c.get("password")), &urls, &text(c.get("totpUri")), &note);
+        let mut e = make_login(
+            &title,
+            &email,
+            &user,
+            &raw(c.get("password")),
+            &urls,
+            &text(c.get("totpUri")),
+            &note,
+        );
         append_lines(&mut e.notes, extras);
         return Some(e);
     }
@@ -202,12 +248,26 @@ fn json_item(item: &Value, passkeys: &mut usize) -> Option<Entry> {
     // Notes, aliases, cards, identities: kept as an entry whose notes hold the fields.
     let mut lines = flatten(content);
     lines.extend(extras);
-    let username = if kind == "alias" { text(item.get("aliasEmail")) } else { String::new() };
+    let username = if kind == "alias" {
+        text(item.get("aliasEmail"))
+    } else {
+        String::new()
+    };
     if title.is_empty() && note.trim().is_empty() && lines.is_empty() && username.is_empty() {
         return None;
     }
-    let title = if title.is_empty() { humanize(if kind.is_empty() { "item" } else { kind }) } else { title };
-    let mut e = Entry { id: new_id(), title, username, notes: note, ..Default::default() };
+    let title = if title.is_empty() {
+        humanize(if kind.is_empty() { "item" } else { kind })
+    } else {
+        title
+    };
+    let mut e = Entry {
+        id: new_id(),
+        title,
+        username,
+        notes: note,
+        ..Default::default()
+    };
     append_lines(&mut e.notes, lines);
     Some(e)
 }
@@ -254,11 +314,15 @@ fn parse_csv(text: &str) -> Vec<Vec<String>> {
 }
 
 fn find_col(header: &[String], names: &[&str]) -> Option<usize> {
-    names.iter().find_map(|n| header.iter().position(|h| h == n))
+    names
+        .iter()
+        .find_map(|n| header.iter().position(|h| h == n))
 }
 
 fn import_csv(text: &str) -> Result<Imported, Error> {
-    let mut rows = parse_csv(text).into_iter().filter(|r| !r.iter().all(|c| c.trim().is_empty()));
+    let mut rows = parse_csv(text)
+        .into_iter()
+        .filter(|r| !r.iter().all(|c| c.trim().is_empty()));
     let header: Vec<String> = rows
         .next()
         .ok_or_else(|| bad("That file is empty."))?
@@ -266,20 +330,38 @@ fn import_csv(text: &str) -> Result<Imported, Error> {
         .map(|h| h.trim().to_lowercase())
         .collect();
     let c_title = find_col(&header, &["name", "title"]);
-    let c_url = find_col(&header, &["url", "login_uri", "website", "login url", "uri"]);
+    let c_url = find_col(
+        &header,
+        &["url", "login_uri", "website", "login url", "uri"],
+    );
     let c_email = find_col(&header, &["email"]);
     let c_user = find_col(&header, &["username", "login_username", "user name"]);
     let c_pass = find_col(&header, &["password", "login_password"]);
     let c_note = find_col(&header, &["note", "notes", "extra"]);
     let c_totp = find_col(&header, &["totp", "login_totp", "otp"]);
-    if c_title.is_none() && c_url.is_none() && c_user.is_none() && c_pass.is_none() && c_email.is_none() {
-        return Err(bad("Couldn't find login columns (name, url, username, password) in this CSV."));
+    if c_title.is_none()
+        && c_url.is_none()
+        && c_user.is_none()
+        && c_pass.is_none()
+        && c_email.is_none()
+    {
+        return Err(bad(
+            "Couldn't find login columns (name, url, username, password) in this CSV.",
+        ));
     }
     let mut out = Imported::default();
     for row in rows {
         let get = |i: Option<usize>| i.and_then(|i| row.get(i)).map(String::as_str).unwrap_or("");
         let urls: Vec<String> = get(c_url).split_whitespace().map(String::from).collect();
-        let e = make_login(get(c_title), get(c_email), get(c_user), get(c_pass), &urls, get(c_totp), get(c_note));
+        let e = make_login(
+            get(c_title),
+            get(c_email),
+            get(c_user),
+            get(c_pass),
+            &urls,
+            get(c_totp),
+            get(c_note),
+        );
         out.entries.push(e);
     }
     Ok(out)
@@ -316,16 +398,31 @@ fn otp_uri(e: &Entry) -> String {
     if o.to_ascii_lowercase().starts_with("otpauth://") {
         return o.to_string();
     }
-    let secret: String = o.chars().filter(|c| !matches!(c, ' ' | '-' | '=')).collect::<String>().to_uppercase();
+    let secret: String = o
+        .chars()
+        .filter(|c| !matches!(c, ' ' | '-' | '='))
+        .collect::<String>()
+        .to_uppercase();
     if secret.is_empty() {
         return String::new();
     }
-    let label = if e.title.is_empty() { "Silk" } else { e.title.as_str() };
-    format!("otpauth://totp/{}?secret={}&algorithm=SHA1&digits=6&period=30", pct_encode(label), secret)
+    let label = if e.title.is_empty() {
+        "Silk"
+    } else {
+        e.title.as_str()
+    };
+    format!(
+        "otpauth://totp/{}?secret={}&algorithm=SHA1&digits=6&period=30",
+        pct_encode(label),
+        secret
+    )
 }
 
 fn is_note(e: &Entry) -> bool {
-    e.password.is_empty() && e.username.is_empty() && e.url.trim().is_empty() && e.otp.trim().is_empty()
+    e.password.is_empty()
+        && e.username.is_empty()
+        && e.url.trim().is_empty()
+        && e.otp.trim().is_empty()
 }
 
 /// Proton Pass splits the login into an email and a username column.
@@ -339,7 +436,9 @@ fn split_login(username: &str) -> (&str, &str) {
 
 /// CSV in Proton Pass's own column layout. `now` is a Unix time in seconds.
 pub fn export_csv(entries: &[Entry], now: u64) -> String {
-    let mut out = String::from("type,name,url,email,username,password,note,totp,createTime,modifyTime,vault\n");
+    let mut out = String::from(
+        "type,name,url,email,username,password,note,totp,createTime,modifyTime,vault\n",
+    );
     for e in entries {
         let (email, user) = split_login(&e.username);
         let cols = [
@@ -371,7 +470,11 @@ pub fn export_json(entries: &[Entry], now: u64) -> String {
             let (email, user) = split_login(&e.username);
             let note = is_note(e);
             let kind = if note { "note" } else { "login" };
-            let urls: Vec<String> = if e.url.trim().is_empty() { Vec::new() } else { vec![e.url.trim().to_string()] };
+            let urls: Vec<String> = if e.url.trim().is_empty() {
+                Vec::new()
+            } else {
+                vec![e.url.trim().to_string()]
+            };
             let content = if note {
                 json!({})
             } else {
@@ -403,7 +506,10 @@ pub fn export_json(entries: &[Entry], now: u64) -> String {
         })
         .collect();
     let mut vaults = serde_json::Map::new();
-    vaults.insert(share.clone(), json!({ "name": "Silk", "description": "Exported from Silk", "items": items }));
+    vaults.insert(
+        share.clone(),
+        json!({ "name": "Silk", "description": "Exported from Silk", "items": items }),
+    );
     let root = json!({
         "version": "1.0.0",
         "userId": "silk",
@@ -472,10 +578,18 @@ mod tests {
         assert!(card.notes.contains("Cardholder name: A B"));
         assert!(!card.notes.contains("Pin"));
 
-        let alias = imp.entries.iter().find(|e| e.title == "Shop alias").unwrap();
+        let alias = imp
+            .entries
+            .iter()
+            .find(|e| e.title == "Shop alias")
+            .unwrap();
         assert_eq!(alias.username, "x.y@passmail.net");
 
-        let old = imp.entries.iter().find(|e| e.title == "Old format").unwrap();
+        let old = imp
+            .entries
+            .iter()
+            .find(|e| e.title == "Old format")
+            .unwrap();
         assert_eq!(old.username, "olduser");
         assert_eq!(old.url, "example.org");
     }
@@ -505,14 +619,25 @@ mod tests {
         assert_eq!(imp.entries[0].username, "bob");
         let bw = "folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n,,login,Bw,,,0,https://b.test,al,pw2,SECRET\n";
         let imp = import(bw.as_bytes()).unwrap();
-        assert_eq!((imp.entries[0].title.as_str(), imp.entries[0].url.as_str(), imp.entries[0].otp.as_str()), ("Bw", "https://b.test", "SECRET"));
+        assert_eq!(
+            (
+                imp.entries[0].title.as_str(),
+                imp.entries[0].url.as_str(),
+                imp.entries[0].otp.as_str()
+            ),
+            ("Bw", "https://b.test", "SECRET")
+        );
     }
 
     #[test]
     fn explains_files_it_cannot_read() {
         assert!(matches!(import(b"PK\x03\x04rest"), Err(Error::Import(m)) if m.contains("zip")));
-        assert!(matches!(import(b"-----BEGIN PGP MESSAGE-----\nabc"), Err(Error::Import(m)) if m.contains("encrypted")));
-        assert!(matches!(import(br#"{"encrypted":true,"vaults":{}}"#), Err(Error::Import(m)) if m.contains("encrypted")));
+        assert!(
+            matches!(import(b"-----BEGIN PGP MESSAGE-----\nabc"), Err(Error::Import(m)) if m.contains("encrypted"))
+        );
+        assert!(
+            matches!(import(br#"{"encrypted":true,"vaults":{}}"#), Err(Error::Import(m)) if m.contains("encrypted"))
+        );
         assert!(matches!(import(br#"{"hello":1}"#), Err(Error::Import(_))));
         assert!(matches!(import(b"a,b,c\n1,2,3\n"), Err(Error::Import(_))));
         assert!(matches!(import(&[0xff, 0xfe, 0x00]), Err(Error::Import(_))));
@@ -521,20 +646,45 @@ mod tests {
 
     fn sample() -> Vec<Entry> {
         vec![
-            Entry { id: "1".into(), title: "Acme, \"Inc\"".into(), username: "me@acme.test".into(), password: "p\"w,1".into(), url: "https://acme.test".into(), otp: "JBSW Y3DP-EHPK 3PXP".into(), notes: "a\nb".into() },
-            Entry { id: "2".into(), title: "Plain".into(), username: "bob".into(), password: "x".into(), ..Default::default() },
-            Entry { id: "3".into(), title: "Memo".into(), notes: "just a note".into(), ..Default::default() },
+            Entry {
+                id: "1".into(),
+                title: "Acme, \"Inc\"".into(),
+                username: "me@acme.test".into(),
+                password: "p\"w,1".into(),
+                url: "https://acme.test".into(),
+                otp: "JBSW Y3DP-EHPK 3PXP".into(),
+                notes: "a\nb".into(),
+            },
+            Entry {
+                id: "2".into(),
+                title: "Plain".into(),
+                username: "bob".into(),
+                password: "x".into(),
+                ..Default::default()
+            },
+            Entry {
+                id: "3".into(),
+                title: "Memo".into(),
+                notes: "just a note".into(),
+                ..Default::default()
+            },
         ]
     }
 
     fn same(a: &Entry, b: &Entry) -> bool {
-        a.title == b.title && a.username == b.username && a.password == b.password && a.url == b.url && a.notes == b.notes
+        a.title == b.title
+            && a.username == b.username
+            && a.password == b.password
+            && a.url == b.url
+            && a.notes == b.notes
     }
 
     #[test]
     fn csv_export_round_trips_and_uses_protons_columns() {
         let csv = export_csv(&sample(), 1_700_000_000);
-        assert!(csv.starts_with("type,name,url,email,username,password,note,totp,createTime,modifyTime,vault\n"));
+        assert!(csv.starts_with(
+            "type,name,url,email,username,password,note,totp,createTime,modifyTime,vault\n"
+        ));
         assert!(csv.contains("login,\"Acme, \"\"Inc\"\"\",https://acme.test,me@acme.test,,"));
         assert!(csv.contains("otpauth://totp/Acme%2C%20%22Inc%22?secret=JBSWY3DPEHPK3PXP"));
         assert!(csv.contains("\nnote,Memo,"));
@@ -562,9 +712,18 @@ mod tests {
 
     #[test]
     fn csv_parser_edge_cases() {
-        assert_eq!(parse_csv("a,b\n"), vec![vec!["a".to_string(), "b".to_string()]]);
-        assert_eq!(parse_csv("\"x\"\"y\",\"\"\n"), vec![vec!["x\"y".to_string(), String::new()]]);
-        assert_eq!(parse_csv("a,b"), vec![vec!["a".to_string(), "b".to_string()]]);
+        assert_eq!(
+            parse_csv("a,b\n"),
+            vec![vec!["a".to_string(), "b".to_string()]]
+        );
+        assert_eq!(
+            parse_csv("\"x\"\"y\",\"\"\n"),
+            vec![vec!["x\"y".to_string(), String::new()]]
+        );
+        assert_eq!(
+            parse_csv("a,b"),
+            vec![vec!["a".to_string(), "b".to_string()]]
+        );
         assert!(parse_csv("").is_empty());
     }
 }

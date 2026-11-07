@@ -1,0 +1,9 @@
+<resources>
+    <!-- Firebase project values: Firebase console > Project settings. The Web API key identifies the
+         project (it is not a secret; the storage rules and the account decide who can read what).
+         While either value still starts with YOUR_, the app shows "Cloud sync isn't set up" and
+         stays fully offline. Setup steps: docs/ARCHITECTURE.md, "Setting up Firebase". -->
+    <string name="firebase_api_key" translatable="false">YOUR_WEB_API_KEY</string>
+    <!-- For example my-project.firebasestorage.app or my-project.appspot.com (Storage > Files shows it). -->
+    <string name="firebase_bucket" translatable="false">YOUR_PROJECT_ID.firebasestorage.app</string>
+</resources>

@@ -36,7 +36,12 @@ pub struct Unlocked {
 
 /// Opens, creates or converts the vault in `store` with the master password. Slow (Argon2id).
 /// `kdf` is used only when a key slot is created: first-time setup and conversion.
-pub fn unlock(store: &DirStore, password: &str, key_file: Option<&[u8]>, kdf: Kdf) -> Result<Unlocked, Error> {
+pub fn unlock(
+    store: &DirStore,
+    password: &str,
+    key_file: Option<&[u8]>,
+    kdf: Kdf,
+) -> Result<Unlocked, Error> {
     if !store.has(Object::KeySlot) {
         if let Some(old) = store.read_legacy()? {
             let mut vault = CloudVault::migrate_legacy(&old, password, key_file, kdf)?;
@@ -44,7 +49,10 @@ pub fn unlock(store: &DirStore, password: &str, key_file: Option<&[u8]>, kdf: Kd
             // Only now, with both new files on disk, is the old file given up. If removing it
             // fails the new vault still works, so that isn't worth failing the unlock for.
             let _ = store.remove_legacy();
-            return Ok(Unlocked { vault, outcome: Outcome::Migrated });
+            return Ok(Unlocked {
+                vault,
+                outcome: Outcome::Migrated,
+            });
         }
     }
     let (vault, flow) = CloudVault::unlock_remote(store, password, key_file, kdf)?;
@@ -84,7 +92,12 @@ impl Default for Session {
 
 impl Session {
     pub const fn new() -> Self {
-        Session { store: None, vault: None, last_use: None, idle: Duration::from_secs(300) }
+        Session {
+            store: None,
+            vault: None,
+            last_use: None,
+            idle: Duration::from_secs(300),
+        }
     }
 
     pub fn set_dir(&mut self, dir: PathBuf) {
@@ -97,12 +110,17 @@ impl Session {
 
     /// The local store (a cheap copy of the folder location), for work done outside the session lock.
     pub fn store(&self) -> Result<DirStore, Error> {
-        self.store.clone().ok_or_else(|| Error::Io("no data directory".into()))
+        self.store
+            .clone()
+            .ok_or_else(|| Error::Io("no data directory".into()))
     }
 
     /// True when there is a vault to unlock: a key slot, or an old `.pvlt` waiting to be converted.
     pub fn exists(&self) -> bool {
-        self.store.as_ref().map(|s| s.has(Object::KeySlot) || s.has_legacy()).unwrap_or(false)
+        self.store
+            .as_ref()
+            .map(|s| s.has(Object::KeySlot) || s.has_legacy())
+            .unwrap_or(false)
     }
 
     pub fn touch(&mut self) {
@@ -142,7 +160,10 @@ impl Session {
     /// The VEK for wrapping by the biometric key, or `Locked`. Treat it like the master password.
     pub fn export_vek(&mut self) -> Result<Zeroizing<[u8; 32]>, Error> {
         self.check_idle();
-        self.vault.as_ref().map(|v| v.export_vek()).ok_or(Error::Locked)
+        self.vault
+            .as_ref()
+            .map(|v| v.export_vek())
+            .ok_or(Error::Locked)
     }
 
     /// The entries, or `None` while locked.
@@ -210,7 +231,7 @@ impl Session {
 
     /// Replaces the stored vault with a backup (which stays encrypted). Accepts a Silk backup
     /// bundle, or an old `.pvlt` backup that is converted on the next unlock. Restoring is the one
-    /// deliberate way to go back to an older vault, so it also clears the rollback mark.
+    /// deliberate way to go back to an older vault, so it also clears the rollback mark and the cloud link.
     pub fn import(&mut self, bytes: &[u8]) -> Result<(), Error> {
         let store = self.store()?;
         if Vault::validate(bytes).is_ok() {
@@ -225,6 +246,9 @@ impl Session {
             store.remove_legacy()?;
         }
         store.forget_revision()?;
+        // The restored vault may be older than the cloud copy. Without the link the next sync asks
+        // which one to keep instead of quietly undoing the restore.
+        store.unlink()?;
         self.lock();
         Ok(())
     }
@@ -242,7 +266,11 @@ mod tests {
     use super::*;
     use crate::vault::new_id;
 
-    const FAST: Kdf = Kdf { t: 1, mem_kib: 64, p: 1 };
+    const FAST: Kdf = Kdf {
+        t: 1,
+        mem_kib: 64,
+        p: 1,
+    };
 
     fn temp_session() -> Session {
         let dir = std::env::temp_dir().join(format!("silk-test-{}", new_id()));
@@ -252,7 +280,13 @@ mod tests {
     }
 
     fn entry(id: &str) -> Entry {
-        Entry { id: id.into(), title: "Site".into(), username: "me".into(), password: "pw".into(), ..Entry::default() }
+        Entry {
+            id: id.into(),
+            title: "Site".into(),
+            username: "me".into(),
+            password: "pw".into(),
+            ..Entry::default()
+        }
     }
 
     /// Unlocks (or creates) with the password and installs the vault.
@@ -282,7 +316,10 @@ mod tests {
         assert!(s.entries().unwrap().is_empty());
 
         let store = s.store().unwrap();
-        assert_eq!(unlock(&store, "wrong", None, FAST).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            unlock(&store, "wrong", None, FAST).err(),
+            Some(Error::WrongCredentials)
+        );
     }
 
     #[test]
@@ -323,7 +360,10 @@ mod tests {
         assert!(s.exists());
 
         // A wrong password changes nothing: the old file stays.
-        assert_eq!(unlock(&store, "wrong", None, FAST).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            unlock(&store, "wrong", None, FAST).err(),
+            Some(Error::WrongCredentials)
+        );
         assert!(store.has_legacy());
         assert!(!store.has(Object::KeySlot));
 
@@ -337,7 +377,12 @@ mod tests {
         drop(vault);
 
         // From now on it is an ordinary vault.
-        assert_eq!(unlock(&store, "password1", None, FAST).map(|u| u.outcome).ok(), Some(Outcome::Unlocked));
+        assert_eq!(
+            unlock(&store, "password1", None, FAST)
+                .map(|u| u.outcome)
+                .ok(),
+            Some(Outcome::Unlocked)
+        );
     }
 
     #[test]
@@ -388,7 +433,10 @@ mod tests {
 
         // Someone hands back the old vault file.
         store.put(Object::Archive, &file_at_1).unwrap();
-        assert_eq!(unlock(&store, "password1", None, FAST).err(), Some(Error::Rollback));
+        assert_eq!(
+            unlock(&store, "password1", None, FAST).err(),
+            Some(Error::Rollback)
+        );
 
         // Restoring a backup on purpose is allowed and resets the mark.
         s.import(&backup_at_1).unwrap();
@@ -408,6 +456,9 @@ mod tests {
         let store = s.store().unwrap();
         let vault = unlock_with_vek(&store, &vek).unwrap();
         assert_eq!(vault.entries.len(), 1);
-        assert_eq!(unlock_with_vek(&store, &[0u8; 32]).err(), Some(Error::Corrupt));
+        assert_eq!(
+            unlock_with_vek(&store, &[0u8; 32]).err(),
+            Some(Error::Corrupt)
+        );
     }
 }

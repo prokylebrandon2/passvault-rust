@@ -838,7 +838,7 @@ export component MainWindow inherits Window {
     title: "Silk";
     background: Theme.bg;
 
-    // 0 unlock or create, 1 logins, 2 edit login, 3 codes, 4 generator, 5 more, 6 add authenticator
+    // 0 unlock or create, 1 logins, 2 edit login, 3 codes, 4 generator, 5 more, 6 add authenticator, 7 cloud account
     in-out property <int> screen: 0;
     in property <bool> creating: false;
     in property <bool> busy: false;
@@ -887,6 +887,23 @@ export component MainWindow inherits Window {
     // 0 nothing, 1 CSV, 2 JSON: which plain-text export is waiting for the "Export anyway" tap
     in-out property <int> export-ask: 0;
 
+    // Cloud sync (Firebase). The app sets the state; the account fields are typed on screen 7.
+    in property <bool> cloud-configured: false;
+    // Signed in, or a sign-in is saved in the key file: shows Sync now and Sign out.
+    in property <bool> cloud-linked: false;
+    in property <bool> cloud-busy: false;
+    // This device and the cloud account hold different vaults: ask which one to keep.
+    in property <bool> cloud-choice: false;
+    in property <string> cloud-status: "";
+    in-out property <string> cloud-email: "";
+    in-out property <string> cloud-pw: "";
+    callback cloud-sign-in();
+    callback cloud-sign-up();
+    callback cloud-sign-out();
+    callback cloud-sync();
+    // true: keep this device's vault (replaces the cloud one); false: use the cloud vault (replaces this one).
+    callback cloud-choose(bool);
+
     callback submit();
     callback pick-key-file();
     callback create-key-file();
@@ -930,7 +947,8 @@ export component MainWindow inherits Window {
     property <length> form-height: 700px + (root.otp-code != "" ? 140px : 0px) + (root.otp-invalid ? 46px : 0px) + (root.error != "" ? 64px : 0px);
     property <length> auth-height: 560px + (root.a-code != "" ? 140px : 0px) + (root.a-invalid ? 46px : 0px) + (root.error != "" ? 64px : 0px);
     property <length> gen-height: 868px + gen-banner.wanted;
-    property <length> more-height: 662px + (root.export-ask != 0 ? 200px : 0px) + (root.bio-available ? 106px : 0px) + more-banner.wanted;
+    property <length> more-height: 662px + (root.export-ask != 0 ? 200px : 0px) + (root.bio-available ? 106px : 0px) + more-banner.wanted + 170px + (root.cloud-linked ? 66px : 0px) + (root.cloud-choice ? 292px : 0px);
+    property <length> cloud-height: 560px + (root.error != "" ? 64px : 0px);
 
     // A fresh generated password flashes in.
     property <bool> preview-dim: false;
@@ -1449,6 +1467,40 @@ export component MainWindow inherits Window {
                             }
                         }
 
+                        SectionLabel { text: "CLOUD SYNC"; }
+                        Text {
+                            text: root.cloud-status;
+                            wrap: word-wrap;
+                            font-size: 14px;
+                            color: Theme.muted;
+                        }
+                        if root.cloud-configured && !root.cloud-linked : SilkButton { text: "Sign in or create account"; primary: true; clicked => { root.go(7); } }
+                        if root.cloud-linked : SilkButton {
+                            text: "Sync now";
+                            primary: true;
+                            busy: root.cloud-busy;
+                            active: !root.cloud-busy;
+                            clicked => { root.cloud-sync(); }
+                        }
+                        if root.cloud-linked : SilkButton { text: "Sign out"; clicked => { root.cloud-sign-out(); } }
+                        if root.cloud-choice : Rectangle {
+                            height: 280px;
+                            border-radius: 16px;
+                            background: Theme.danger-soft;
+                            VerticalLayout {
+                                padding: 16px;
+                                spacing: 10px;
+                                Text {
+                                    text: "This device and your cloud account hold different vaults. Nothing has been changed. Choose the one to keep; the other one is replaced.";
+                                    wrap: word-wrap;
+                                    font-size: 14px;
+                                    color: Theme.fg;
+                                }
+                                SilkButton { text: "Keep this device's vault"; clicked => { root.cloud-choose(true); } }
+                                SilkButton { text: "Use the cloud vault"; clicked => { root.cloud-choose(false); } }
+                            }
+                        }
+
                         SectionLabel { text: "PROTON PASS"; }
                         Text {
                             text: "Import an unencrypted Proton Pass export (JSON or CSV). Logins already in this vault are skipped.";
@@ -1569,6 +1621,58 @@ export component MainWindow inherits Window {
                                 primary: true;
                                 active: root.a-name != "" && root.a-code != "";
                                 clicked => { root.save-authenticator(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 7: Cloud account (Firebase sign in or create account)
+            SilkScreen {
+                active: root.screen == 7;
+                width: parent.width;
+                height: parent.height;
+                VerticalLayout {
+                    width: parent.width;
+                    height: parent.height;
+                    padding-top: 12px + root.safe-area-insets.top;
+                    spacing: 4px;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 4px;
+                        SilkLink { text: "Back"; clicked => { root.go(5); } }
+                        Text { text: "Cloud account"; font-size: 20px; font-weight: 700; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; }
+                    }
+                    Flickable {
+                        vertical-stretch: 1;
+                        content-height: root.cloud-height;
+                        VerticalLayout {
+                            width: root.width;
+                            height: root.cloud-height;
+                            alignment: start;
+                            padding: 16px;
+                            spacing: 10px;
+                            Text {
+                                text: "Your vault is stored in Firebase already encrypted: Firebase never sees your master password or your logins. This account only decides who may download the encrypted files, so give it a password of its own. Silk saves the sign-in (never this password) in your key file.";
+                                wrap: word-wrap;
+                                font-size: 14px;
+                                color: Theme.muted;
+                            }
+                            SilkField { label: "Account email"; text <=> root.cloud-email; edited => { root.activity(); } }
+                            SilkField { label: "Account password"; secret: true; text <=> root.cloud-pw; edited => { root.activity(); } }
+                            SilkBanner { error: root.error; notice: ""; }
+                            SilkButton {
+                                text: "Sign in";
+                                primary: true;
+                                busy: root.cloud-busy;
+                                active: !root.cloud-busy && root.cloud-email != "" && root.cloud-pw != "";
+                                clicked => { root.cloud-sign-in(); }
+                            }
+                            SilkButton {
+                                text: "Create account";
+                                active: !root.cloud-busy && root.cloud-email != "" && root.cloud-pw != "";
+                                clicked => { root.cloud-sign-up(); }
                             }
                         }
                     }

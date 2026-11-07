@@ -15,6 +15,10 @@ pub enum Error {
     Import(String),
     /// The cloud copy (Firebase) couldn't be reached or refused the request.
     Remote(String),
+    /// Firebase refused the account itself (wrong email or password, weak password, ...). The message is shown as it is.
+    Account(String),
+    /// The saved cloud sign-in is no longer accepted. The user has to sign in again.
+    SignedOut,
     /// The vault file is older than one this device has already seen (see `local::DirStore::check_revision`).
     Rollback,
 }
@@ -33,6 +37,8 @@ impl fmt::Display for Error {
             Error::Io(e) => write!(f, "Couldn't read or write the vault: {e}"),
             Error::Import(m) => f.write_str(m),
             Error::Remote(e) => write!(f, "Couldn't reach the cloud copy: {e}"),
+            Error::Account(m) => f.write_str(m),
+            Error::SignedOut => f.write_str("Your cloud sign-in is no longer valid. Sign in again."),
             Error::Rollback => f.write_str(
                 "This vault is older than the last copy this device saw, so it wasn't opened. If you meant to go back to an old backup, restore it from the backup option.",
             ),

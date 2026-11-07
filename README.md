@@ -2,7 +2,7 @@
 
 > Silk was called PassVault. The rename is complete: crates, library, Android package and application ID (`app.silk`), classes, docs. Only the old `.pvlt` file format keeps its `PVLT` magic, because old vaults and backups must still open. **Because the application ID changed, Android treats Silk as a new app:** to bring an old PassVault vault over, back it up in the old app, install Silk and use **Restore from backup** on its first screen. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-An offline Android password manager written in Rust: master password + optional key file, system autofill and TOTP codes. No network permission.
+An offline Android password manager written in Rust: master password + optional key file, system autofill and TOTP codes. Optional Firebase cloud sync: the only thing that ever leaves the device is the already-encrypted vault.
 
 ## How it's built
 
@@ -19,7 +19,9 @@ An offline Android password manager written in Rust: master password + optional 
 - The vault file is encrypted with the VEK using **AES-256-GCM**. Every save uses a fresh random nonce, and the headers (KDF settings, salt, revision) are authenticated. Changing the master password only re-wraps the VEK; the vault file isn't touched.
 - Each save raises an authenticated revision number and the device remembers the highest one it has seen, so an older copy of the vault file is refused.
 - Vaults from earlier versions (`vault.pvlt`) are converted automatically the first time they are unlocked with the password.
-- A **key file** is any file you pick, or a random 64-byte one the app creates. It is mixed into the key, so the vault can't be opened without it. Keep a copy somewhere other than this phone. Lose the password or the key file and the vault is gone. The app remembers where the key file is, never its contents.
+- A **key file** is any file you pick, or a **Silk key file** the app creates (a random 64-byte secret, magic `SKEY`). It is mixed into the key, so the vault can't be opened without it. Keep a copy somewhere other than this phone. Lose the password or the key file and the vault is gone. The app remembers where the key file is, never its contents.
+- **The cloud sign-in is saved in the Silk key file automatically.** When you sign in to the cloud account, Silk writes the account's email, user id and refresh token (never the account password) after the secret in the key file, and removes them again when you sign out or the sign-in expires. Only the 64-byte secret feeds the key derivation, so this never changes the key. Any other file you picked as a key file is hashed whole, as always, and Silk never writes into it; with one of those, the sign-in lasts until Silk closes. Older 64-byte key files keep working unchanged.
+- **Planned:** the `.key` file will be encrypted inside a `.skln`. That comes in a later update, after the security update in Kiln, because the encryption engine for it is going to be built in Kiln. Until then the key file, refresh token included, is stored unencrypted wherever you saved it, so treat it like a password: whoever holds it can sign in to your cloud account (they still can't read the vault without the master password).
 - Data stays in app-private storage. `allowBackup=false`, screenshots are blocked, the clipboard is flagged sensitive and cleared after 5 minutes. Keys and entries are zeroized when the vault locks.
 - The vault locks after 5 idle minutes, when the screen turns off and when you leave the app with Back. Tune the KDF in `core/src/vault.rs` (`Kdf::default`) and the idle time in `core/src/session.rs`.
 - **Back up** (list screen) saves the still-encrypted key slot and vault file as one `.silk` file, and keeps that file up to date after every change. **Restore from backup** is on the create screen; it also accepts old `.pvlt` backups.
@@ -62,9 +64,13 @@ It opens the same backup format (Argon2id unwraps the VEK, AES-256-GCM decrypts 
 
 `cd browser-extension && npm test` runs the tests (Argon2 against the RFC 9106 vectors, opening backups and old vault files, RFC 6238 codes, site matching). Needs Node 18 or newer.
 
-## Cloud architecture: the VEK, Kiln and Firebase (in progress)
+## Cloud architecture: the VEK, Kiln and Firebase
 
-The vault uses envelope encryption with Firebase planned as untrusted storage: the master password goes through Argon2id to a key that only wraps a random **VEK**; the VEK encrypts the vault archive. That archive will be Kiln's `.skln` (Kiln is a separate project and `.skln` is not in it yet), so `core/src/interim.rs` stands in behind the `Archiver` trait until it is. The app already runs on this design over the local copy (`core/src/local.rs`, `session.rs`), with offline unlock, conversion of old vaults and a rollback guard. It has no network permission until the Firebase transport lands. Diagram, formats, what `.skln` needs to provide and the task list: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Storage rules: `firebase/storage.rules`.
+The vault uses envelope encryption with Firebase as untrusted storage: the master password goes through Argon2id to a key that only wraps a random **VEK**; the VEK encrypts the vault archive. That archive will be Kiln's `.skln` (Kiln is a separate project and `.skln` is not in it yet), so `core/src/interim.rs` stands in behind the `Archiver` trait until it is.
+
+Cloud sync is optional and off until you set up a Firebase project (steps in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), "Setting up Firebase") and sign in from **More > Cloud sync**. The device always unlocks from its own copy, so offline use never needs the network. After each saved change Silk uploads the two encrypted files (key slot and vault file); **Sync now** also downloads a newer cloud copy. The higher authenticated revision wins, a download goes through the rollback guard, and two vaults that were never linked are never overwritten silently (you are asked which one to keep). The only network code is `android/.../Net.java`, which accepts HTTPS to three Firebase hosts and nothing else. Storage rules: `firebase/storage.rules`.
+
+Diagram, formats, the key file layout, what `.skln` needs to provide and the task list: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Build
 

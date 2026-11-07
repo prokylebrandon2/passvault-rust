@@ -14,6 +14,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelFileDescriptor;
 import android.os.PersistableBundle;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
@@ -24,9 +25,14 @@ import android.view.autofill.AutofillManager;
 import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * NativeActivity plus the Android calls Rust can't make on its own: document picker results,
@@ -48,6 +54,8 @@ public class SilkActivity extends NativeActivity {
 
     private static final int KEY_LIMIT = 1_000_000;
     private static final int FILE_LIMIT = 32_000_000;
+    /** "SKEY" + version + 64-byte secret: the part of a Silk key file that is never rewritten (silk-core keyfile::HEAD_LEN). */
+    private static final int KEY_HEAD = 69;
 
     private byte[] pendingData;
 
@@ -65,6 +73,12 @@ public class SilkActivity extends NativeActivity {
             Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT)
                     .addCategory(Intent.CATEGORY_OPENABLE)
                     .setType("*/*");
+            if (code == KEY_PICK) {
+                // Ask for write access too: a Silk key file gets the cloud sign-in saved into it.
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            }
             startActivityForResult(i, code);
         });
     }
@@ -113,7 +127,7 @@ public class SilkActivity extends NativeActivity {
                     out = readAll(uri, code == KEY_PICK ? KEY_LIMIT : FILE_LIMIT); // IMPORT_IN and BACKUP_IN read a whole file
                 }
                 name = displayName(uri);
-                if (code == KEY_PICK || code == KEY_CREATE) remember(uri, code == KEY_CREATE);
+                if (code == KEY_PICK || code == KEY_CREATE) remember(uri);
                 if (code == BACKUP_OUT || code == BACKUP_IN) rememberBackup(uri);
                 status = OK;
             } catch (Exception e) {
@@ -125,10 +139,13 @@ public class SilkActivity extends NativeActivity {
         Native.onFile(code, status, name, out);
     }
 
-    // ---- remembered key file (the location only; the file's bytes are never stored) ----
+    // ---- remembered key file (the location only; the file's bytes are never stored here) ----
+
+    /** Reads and writes of the key file share one thread, so a read never overtakes a write still in flight. */
+    private static final ExecutorService KEY_POOL = Executors.newSingleThreadExecutor();
 
     public void restoreKeyFile() {
-        new Thread(() -> {
+        KEY_POOL.execute(() -> {
             String saved = prefs().getString("kf", null);
             if (saved == null) return;
             try {
@@ -138,7 +155,68 @@ public class SilkActivity extends NativeActivity {
             } catch (Exception e) {
                 // moved, deleted or permission lost: the user chooses it again
             }
-        }).start();
+        });
+    }
+
+    /**
+     * Saves the cloud sign-in into the remembered key file. {@code data} is the whole new file as built
+     * by Rust. The key file is the one thing that can't be lost, so this is deliberately careful:
+     * <ul>
+     * <li>it only proceeds if the file on disk is a Silk key file whose first {@link #KEY_HEAD} bytes
+     * (magic, version, secret) are byte-for-byte the same as in {@code data};</li>
+     * <li>it never writes those bytes at all, only what follows them, then trims the file to size.</li>
+     * </ul>
+     * A crash or a provider that refuses the write can therefore damage at most the sign-in section,
+     * which Rust ignores when it can't read it.
+     */
+    public void saveKeyFile(final byte[] data) {
+        final String saved = prefs().getString("kf", null);
+        if (saved == null || data == null || data.length < KEY_HEAD) return;
+        KEY_POOL.execute(() -> {
+            try {
+                Uri uri = Uri.parse(saved);
+                byte[] head = readHead(uri);
+                if (head == null || !sameHead(head, data)) throw new IllegalStateException("not the same key file");
+                try (ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "rw");
+                     FileOutputStream fos = new FileOutputStream(pfd.getFileDescriptor());
+                     FileChannel ch = fos.getChannel()) {
+                    ch.position(KEY_HEAD);
+                    ByteBuffer buf = ByteBuffer.wrap(data, KEY_HEAD, data.length - KEY_HEAD);
+                    while (buf.hasRemaining()) ch.write(buf);
+                    ch.truncate(data.length);
+                    ch.force(true);
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this,
+                        "Couldn't save the cloud sign-in into your key file. You stay signed in until Silk closes.",
+                        Toast.LENGTH_LONG).show());
+            } finally {
+                java.util.Arrays.fill(data, (byte) 0);
+            }
+        });
+    }
+
+    private byte[] readHead(Uri uri) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) return null;
+            byte[] head = new byte[KEY_HEAD];
+            int off = 0;
+            while (off < KEY_HEAD) {
+                int n = in.read(head, off, KEY_HEAD - off);
+                if (n < 0) return null;
+                off += n;
+            }
+            return head;
+        }
+    }
+
+    private static boolean sameHead(byte[] onDisk, byte[] wanted) {
+        if (onDisk.length < KEY_HEAD || wanted.length < KEY_HEAD) return false;
+        if (onDisk[0] != 'S' || onDisk[1] != 'K' || onDisk[2] != 'E' || onDisk[3] != 'Y') return false;
+        for (int i = 0; i < KEY_HEAD; i++) {
+            if (onDisk[i] != wanted[i]) return false;
+        }
+        return true;
     }
 
     public void forgetKeyFile() {
@@ -149,12 +227,17 @@ public class SilkActivity extends NativeActivity {
         return getSharedPreferences("silk", Context.MODE_PRIVATE);
     }
 
-    private void remember(Uri uri, boolean write) {
-        int flags = Intent.FLAG_GRANT_READ_URI_PERMISSION | (write ? Intent.FLAG_GRANT_WRITE_URI_PERMISSION : 0);
+    private void remember(Uri uri) {
         try {
-            getContentResolver().takePersistableUriPermission(uri, flags);
-        } catch (Exception ignored) {
-            // provider doesn't support persistable permissions
+            // Read and write: a Silk key file keeps the cloud sign-in written into it.
+            getContentResolver().takePersistableUriPermission(uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Exception noWrite) {
+            try {
+                getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {
+                // provider doesn't support persistable permissions
+            }
         }
         prefs().edit().putString("kf", uri.toString()).apply();
     }
@@ -213,6 +296,18 @@ public class SilkActivity extends NativeActivity {
         }
         String last = uri.getLastPathSegment();
         return last != null ? last : "key file";
+    }
+
+    // ---- cloud (Firebase): the protocol lives in Rust, Java only carries the HTTPS call ----
+
+    /** One HTTPS request for Rust's Firebase client; see {@link Net} for the reply layout. Called on a worker thread. */
+    public byte[] http(String method, String url, String headers, byte[] body) {
+        return Net.request(method, url, headers, body);
+    }
+
+    /** "web api key", a newline, "storage bucket", from res/values/firebase.xml. */
+    public String firebaseConfig() {
+        return getString(R.string.firebase_api_key) + "\n" + getString(R.string.firebase_bucket);
     }
 
     // ---- clipboard ----

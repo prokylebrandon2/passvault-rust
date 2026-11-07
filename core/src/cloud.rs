@@ -10,9 +10,9 @@
 //! The archiver is Kiln's `.skln` once that exists (see [`crate::archive`]). [`CloudVault`] holds
 //! the unlocked state (VEK + entries, both wiped on drop). The pure functions work on byte
 //! buffers; `unlock_remote` / `save_remote` add the cloud round trips through a [`RemoteStore`].
+use crate::archive::{self, Archiver, Member};
 use crate::error::Error;
 use crate::keyslot::KeySlot;
-use crate::archive::{self, Archiver, Member};
 use crate::remote::{Object, RemoteStore};
 use crate::vault::{Entry, Kdf, Vault};
 use serde::{Deserialize, Serialize};
@@ -68,7 +68,13 @@ impl CloudVault {
     /// First-time setup: a new random VEK wrapped under the password (and key file), empty entries.
     pub fn setup(password: &str, key_file: Option<&[u8]>, kdf: Kdf) -> Result<CloudVault, Error> {
         let (slot, vek) = KeySlot::create(password, key_file, kdf)?;
-        Ok(CloudVault { slot, slot_dirty: true, vek, revision: 0, entries: Vec::new() })
+        Ok(CloudVault {
+            slot,
+            slot_dirty: true,
+            vek,
+            revision: 0,
+            entries: Vec::new(),
+        })
     }
 
     /// Subsequent unlock from bytes: Argon2id -> unwrap VEK -> the archiver decrypts the vault file.
@@ -85,7 +91,11 @@ impl CloudVault {
     }
 
     /// Unlock with a VEK that is already known (biometric quick unlock): no Argon2id.
-    pub fn unlock_with_vek(keyslot: &[u8], vault_file: Option<&[u8]>, vek: &[u8; 32]) -> Result<CloudVault, Error> {
+    pub fn unlock_with_vek(
+        keyslot: &[u8],
+        vault_file: Option<&[u8]>,
+        vek: &[u8; 32],
+    ) -> Result<CloudVault, Error> {
         let slot = KeySlot::from_bytes(keyslot)?;
         // With no vault file there is nothing to check the VEK against, and a wrong VEK would later
         // seal a vault nobody can open. Only the password path may start from an empty vault.
@@ -93,7 +103,11 @@ impl CloudVault {
         CloudVault::assemble(slot, Zeroizing::new(*vek), Some(file))
     }
 
-    fn assemble(slot: KeySlot, vek: Zeroizing<[u8; 32]>, vault_file: Option<&[u8]>) -> Result<CloudVault, Error> {
+    fn assemble(
+        slot: KeySlot,
+        vek: Zeroizing<[u8; 32]>,
+        vault_file: Option<&[u8]>,
+    ) -> Result<CloudVault, Error> {
         let (revision, entries) = match vault_file {
             Some(file) => {
                 let opened = archive::current().open(&vek, file)?;
@@ -103,7 +117,13 @@ impl CloudVault {
             }
             None => (0, Vec::new()),
         };
-        Ok(CloudVault { slot, slot_dirty: false, vek, revision, entries })
+        Ok(CloudVault {
+            slot,
+            slot_dirty: false,
+            vek,
+            revision,
+            entries,
+        })
     }
 
     /// Imports a legacy `.pvlt` vault: same password and key file, new VEK + key slot + entries.
@@ -122,11 +142,17 @@ impl CloudVault {
     /// Encrypts the current entries into a fresh vault file (revision + 1) and returns both objects.
     pub fn seal(&mut self) -> Result<Bundle, Error> {
         let next = self.revision.checked_add(1).ok_or(Error::Corrupt)?;
-        let body = serde_json::to_vec(&DocRef { entries: &self.entries }).map_err(|_| Error::Corrupt)?;
+        let body = serde_json::to_vec(&DocRef {
+            entries: &self.entries,
+        })
+        .map_err(|_| Error::Corrupt)?;
         let member = Member::new(VAULT_MEMBER, body);
         let vault_file = archive::current().seal(&self.vek, next, std::slice::from_ref(&member))?;
         self.revision = next;
-        Ok(Bundle { keyslot: self.slot.to_bytes(), vault_file })
+        Ok(Bundle {
+            keyslot: self.slot.to_bytes(),
+            vault_file,
+        })
     }
 
     /// Changes the master password and/or key file. Only the small key slot is re-wrapped: the VEK
@@ -188,7 +214,8 @@ impl CloudVault {
             }
             Some(slot_bytes) => {
                 let vault_file = store.get(Object::Archive)?;
-                let silk = CloudVault::unlock(&slot_bytes, vault_file.as_deref(), password, key_file)?;
+                let silk =
+                    CloudVault::unlock(&slot_bytes, vault_file.as_deref(), password, key_file)?;
                 Ok((silk, Flow::Subsequent))
             }
         }
@@ -212,10 +239,20 @@ mod tests {
     use super::*;
     use crate::remote::MemoryStore;
 
-    const FAST: Kdf = Kdf { t: 1, mem_kib: 64, p: 1 };
+    const FAST: Kdf = Kdf {
+        t: 1,
+        mem_kib: 64,
+        p: 1,
+    };
 
     fn entry(id: &str, title: &str) -> Entry {
-        Entry { id: id.into(), title: title.into(), username: "me".into(), password: "pw".into(), ..Entry::default() }
+        Entry {
+            id: id.into(),
+            title: title.into(),
+            username: "me".into(),
+            password: "pw".into(),
+            ..Entry::default()
+        }
     }
 
     #[test]
@@ -226,14 +263,21 @@ mod tests {
         let b = s.seal().unwrap();
         assert_eq!(s.revision(), 1);
 
-        let back = CloudVault::unlock(&b.keyslot, Some(&b.vault_file), "correct horse", Some(&kf)).unwrap();
+        let back = CloudVault::unlock(&b.keyslot, Some(&b.vault_file), "correct horse", Some(&kf))
+            .unwrap();
         assert_eq!(back.entries.len(), 1);
         assert_eq!(back.entries[0].title, "GitHub");
         assert_eq!(back.revision(), 1);
         assert!(back.uses_key_file());
 
-        assert_eq!(CloudVault::unlock(&b.keyslot, Some(&b.vault_file), "wrong", Some(&kf)).err(), Some(Error::WrongCredentials));
-        assert_eq!(CloudVault::unlock(&b.keyslot, Some(&b.vault_file), "correct horse", None).err(), Some(Error::KeyFileRequired));
+        assert_eq!(
+            CloudVault::unlock(&b.keyslot, Some(&b.vault_file), "wrong", Some(&kf)).err(),
+            Some(Error::WrongCredentials)
+        );
+        assert_eq!(
+            CloudVault::unlock(&b.keyslot, Some(&b.vault_file), "correct horse", None).err(),
+            Some(Error::KeyFileRequired)
+        );
     }
 
     #[test]
@@ -259,7 +303,10 @@ mod tests {
         assert_eq!(again.entries.len(), 1);
         assert_eq!(again.entries[0].title, "Bank");
 
-        assert_eq!(CloudVault::unlock_remote(&store, "nope", None, FAST).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            CloudVault::unlock_remote(&store, "nope", None, FAST).err(),
+            Some(Error::WrongCredentials)
+        );
     }
 
     #[test]
@@ -275,7 +322,10 @@ mod tests {
         // vault file without a key slot: never overwrite.
         let orphan = MemoryStore::new();
         orphan.put(Object::Archive, &[1, 2, 3]).unwrap();
-        assert_eq!(CloudVault::unlock_remote(&orphan, "password1", None, FAST).err(), Some(Error::Corrupt));
+        assert_eq!(
+            CloudVault::unlock_remote(&orphan, "password1", None, FAST).err(),
+            Some(Error::Corrupt)
+        );
     }
 
     #[test]
@@ -288,9 +338,24 @@ mod tests {
         assert_ne!(before.keyslot, after.keyslot);
 
         // The *old* vault file still opens with the new password, because the VEK didn't change.
-        let reopened = CloudVault::unlock(&after.keyslot, Some(&before.vault_file), "new password", None).unwrap();
+        let reopened = CloudVault::unlock(
+            &after.keyslot,
+            Some(&before.vault_file),
+            "new password",
+            None,
+        )
+        .unwrap();
         assert_eq!(reopened.entries[0].title, "Mail");
-        assert_eq!(CloudVault::unlock(&after.keyslot, Some(&after.vault_file), "old password", None).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            CloudVault::unlock(
+                &after.keyslot,
+                Some(&after.vault_file),
+                "old password",
+                None
+            )
+            .err(),
+            Some(Error::WrongCredentials)
+        );
     }
 
     #[test]
@@ -301,7 +366,10 @@ mod tests {
         let vek = s.export_vek();
         let back = CloudVault::unlock_with_vek(&b.keyslot, Some(&b.vault_file), &vek).unwrap();
         assert_eq!(back.entries.len(), 1);
-        assert_eq!(CloudVault::unlock_with_vek(&b.keyslot, Some(&b.vault_file), &[0u8; 32]).err(), Some(Error::Corrupt));
+        assert_eq!(
+            CloudVault::unlock_with_vek(&b.keyslot, Some(&b.vault_file), &[0u8; 32]).err(),
+            Some(Error::Corrupt)
+        );
     }
 
     #[test]
@@ -314,6 +382,9 @@ mod tests {
         let b = silk.seal().unwrap();
         let back = CloudVault::unlock(&b.keyslot, Some(&b.vault_file), "password1", None).unwrap();
         assert_eq!(back.entries[0].title, "Old login");
-        assert_eq!(CloudVault::migrate_legacy(&bytes, "wrong", None, FAST).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            CloudVault::migrate_legacy(&bytes, "wrong", None, FAST).err(),
+            Some(Error::WrongCredentials)
+        );
     }
 }

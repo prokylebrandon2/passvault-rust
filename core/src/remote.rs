@@ -49,11 +49,19 @@ impl MemoryStore {
 
 impl RemoteStore for MemoryStore {
     fn get(&self, object: Object) -> Result<Option<Vec<u8>>, Error> {
-        Ok(self.objects.lock().unwrap_or_else(|e| e.into_inner()).get(&object).cloned())
+        Ok(self
+            .objects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&object)
+            .cloned())
     }
 
     fn put(&self, object: Object, data: &[u8]) -> Result<(), Error> {
-        self.objects.lock().unwrap_or_else(|e| e.into_inner()).insert(object, data.to_vec());
+        self.objects
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(object, data.to_vec());
         Ok(())
     }
 }

@@ -26,7 +26,14 @@ pub struct GenOptions {
 
 impl Default for GenOptions {
     fn default() -> Self {
-        GenOptions { length: 20, lower: true, upper: true, digits: true, symbols: true, avoid_lookalikes: true }
+        GenOptions {
+            length: 20,
+            lower: true,
+            upper: true,
+            digits: true,
+            symbols: true,
+            avoid_lookalikes: true,
+        }
     }
 }
 
@@ -57,7 +64,11 @@ impl GenOptions {
             sets.push(SYMBOLS);
         }
         sets.into_iter()
-            .map(|s| s.chars().filter(|c| !(self.avoid_lookalikes && LOOKALIKES.contains(*c))).collect::<Vec<char>>())
+            .map(|s| {
+                s.chars()
+                    .filter(|c| !(self.avoid_lookalikes && LOOKALIKES.contains(*c)))
+                    .collect::<Vec<char>>()
+            })
             .filter(|v| !v.is_empty())
             .collect()
     }
@@ -112,7 +123,10 @@ mod tests {
 
     #[test]
     fn length_is_clamped_and_respected() {
-        let mut o = GenOptions { length: 3, ..GenOptions::default() };
+        let mut o = GenOptions {
+            length: 3,
+            ..GenOptions::default()
+        };
         assert_eq!(generate(&o).chars().count(), MIN_LEN);
         o.length = 500;
         assert_eq!(generate(&o).chars().count(), MAX_LEN);
@@ -122,7 +136,10 @@ mod tests {
 
     #[test]
     fn every_selected_set_appears() {
-        let o = GenOptions { length: 8, ..GenOptions::default() };
+        let o = GenOptions {
+            length: 8,
+            ..GenOptions::default()
+        };
         for _ in 0..200 {
             let p = generate(&o);
             assert!(p.chars().any(|c| c.is_ascii_lowercase()), "{p}");
@@ -134,15 +151,32 @@ mod tests {
 
     #[test]
     fn only_the_selected_sets_are_used() {
-        let o = GenOptions { length: 40, lower: false, upper: false, digits: true, symbols: false, avoid_lookalikes: false };
+        let o = GenOptions {
+            length: 40,
+            lower: false,
+            upper: false,
+            digits: true,
+            symbols: false,
+            avoid_lookalikes: false,
+        };
         assert!(generate(&o).chars().all(|c| c.is_ascii_digit()));
-        let o = GenOptions { length: 40, lower: true, upper: false, digits: false, symbols: false, avoid_lookalikes: false };
+        let o = GenOptions {
+            length: 40,
+            lower: true,
+            upper: false,
+            digits: false,
+            symbols: false,
+            avoid_lookalikes: false,
+        };
         assert!(generate(&o).chars().all(|c| c.is_ascii_lowercase()));
     }
 
     #[test]
     fn lookalikes_can_be_excluded() {
-        let o = GenOptions { length: 64, ..GenOptions::default() };
+        let o = GenOptions {
+            length: 64,
+            ..GenOptions::default()
+        };
         for _ in 0..100 {
             assert!(!generate(&o).chars().any(|c| LOOKALIKES.contains(c)));
         }
@@ -150,7 +184,14 @@ mod tests {
 
     #[test]
     fn no_sets_falls_back_to_lowercase() {
-        let o = GenOptions { length: 12, lower: false, upper: false, digits: false, symbols: false, avoid_lookalikes: true };
+        let o = GenOptions {
+            length: 12,
+            lower: false,
+            upper: false,
+            digits: false,
+            symbols: false,
+            avoid_lookalikes: true,
+        };
         assert!(o.normalized().lower);
         assert!(generate(&o).chars().all(|c| c.is_ascii_lowercase()));
     }
@@ -159,7 +200,10 @@ mod tests {
     fn passwords_differ_and_entropy_grows_with_length() {
         let o = GenOptions::default();
         assert_ne!(generate(&o), generate(&o));
-        let longer = GenOptions { length: 30, ..o.clone() };
+        let longer = GenOptions {
+            length: 30,
+            ..o.clone()
+        };
         assert!(longer.entropy_bits() > o.entropy_bits());
         assert!(o.pool_size() > 50);
     }

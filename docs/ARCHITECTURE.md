@@ -17,6 +17,9 @@ This is the written form of the flow diagram. Status of each piece is in the tas
 | **Local store** | The on-device copy of the key slot and vault file in the app's private folder. It implements `RemoteStore`, so unlocking from the local copy runs the same flow as unlocking from Firebase will. Also holds the rollback mark. | `core/src/local.rs` |
 | **Session** | The unlocked state the app holds (VEK + entries), idle lock, saves to the local store, backup and restore. | `core/src/session.rs` |
 | **Backup** | One `.silk` file: key slot + vault file. | `core/src/backup.rs` |
+| **Silk key file** | The `.key` file the app creates: a 64-byte secret (magic `SKEY`) plus the cloud sign-in that Silk saves after it automatically. Meant to be encrypted inside a `.skln` later (see "The key file"). | `core/src/keyfile.rs` |
+| **Firebase client** | Firebase Auth (email and password) and Storage over HTTPS, behind a one-method `Http` trait that the Java glue implements. | `core/src/firebase.rs`, `android/.../Net.java` |
+| **Sync** | Moves the key slot and vault file between the local store and Firebase by revision. | `core/src/sync.rs` |
 | **Legacy vault** | The pre-key-slot `.pvlt` container (`PVLT` magic), where the Argon2id key encrypted the entries directly. Still read for migration and old backups. | `core/src/vault.rs` (`Vault`) |
 
 ## Flow
@@ -73,11 +76,26 @@ archive   count u32 | { name_len u16 | name | data_len u32 | data }*
           one member today: "vault.json" = {"entries":[...]}  (same entry shape as the old vault)
 
 backup    "SKBK" | version u8 | key slot[91] | vault file (the rest)
+
+key file  "SKEY" | version u8 | secret[64] | login_len u32 | login JSON      (login part optional; see "The key file")
 ```
 
 The browser extension reads the backup (`browser-extension/src/vault.js`) and, as before, old `.pvlt` files. Its vault-file part follows the interim format, so it changes together with `interim.rs`.
 
-Key derivation is unchanged from the old vault: `SHA-256(password)`, mixed with `SHA-256(key file)` when a key file is used, then Argon2id (t=3, 64 MiB, p=4 by default) to 32 bytes. Existing key files keep working.
+Key derivation is unchanged from the old vault: `SHA-256(password)`, mixed with `SHA-256(key file material)` when a key file is used, then Argon2id (t=3, 64 MiB, p=4 by default) to 32 bytes. The material of a Silk key file is its 64-byte secret; the material of any other file is the whole file. Existing key files keep working.
+
+## The key file
+
+```
+"SKEY" | version u8 | secret[64] | login_len u32 | login JSON (login_len bytes)
+```
+
+- **Two kinds of key file.** A *Silk key file* starts with `SKEY` and is what **Create a key file** on the unlock screen writes. Anything else is a *raw* key file (a file the user picked, or the plain 64-byte files older versions created): it is hashed whole, exactly as before, and Silk never writes into it.
+- **Only the secret feeds Argon2id** (`keyfile::material`). The sign-in after it can be added, replaced or removed without changing the key, so saving a sign-in can never lock the vault.
+- **The sign-in is saved automatically.** The JSON holds the Firebase account's email, user id and refresh token. The account password is never stored; it is only sent to Firebase's sign-in call and zeroized right after. Silk writes the sign-in after signing in or up, rewrites it when Firebase rotates the refresh token, and removes it on sign-out or when Firebase no longer accepts it. When a key file is loaded, its sign-in is traded for a fresh session (no password prompt) and a sync follows. If a key file without a sign-in is loaded while Silk is already signed in, the sign-in is saved into it.
+- **Safe writes.** The Java side (`SilkActivity.saveKeyFile`) first checks that the file on disk still starts with the same magic, version and secret, and then rewrites only the bytes after them in place. The secret is never rewritten, so an interrupted write can damage at most the sign-in, which is read leniently (a damaged sign-in part means "not signed in", never an error).
+- **Not encrypted yet.** Until the planned `.skln` wrapping exists, the key file is stored as it is. Whoever holds it can sign in to the cloud account and download the two ciphertext files; they still need the master password to open anything.
+- **Planned: the `.key` inside a `.skln`.** The key file is meant to be encrypted inside a `.skln`. That is a later update, after the security update in Kiln, because the encryption engine for it is going to be built in Kiln. `keyfile.rs` keeps these bytes as they are on purpose, so the future layer can wrap the whole file unchanged. Nothing in Silk depends on it yet.
 
 ## On-device files
 
@@ -105,17 +123,29 @@ vaults/<uid>/keyslot.skvk
 vaults/<uid>/vault.skln        (vault.interim while the stand-in is in use)
 ```
 
-Rules are in `firebase/storage.rules` (each user reads and writes only their own files, 20 MB cap, no deletes). Everything stored is ciphertext, so Firebase is treated as untrusted storage. Core only sees the `RemoteStore` trait (`core/src/remote.rs`); the Firebase implementation is a later task.
+Rules are in `firebase/storage.rules` (each user reads and writes only their own files, 20 MB cap, no deletes). Everything stored is ciphertext, so Firebase is treated as untrusted storage. Core only sees the `RemoteStore` trait (`core/src/remote.rs`); `core/src/firebase.rs` implements it over HTTPS.
+
+The device always unlocks from its local copy. `core/src/sync.rs` moves the two objects: after every save the app runs a *push* (upload when this device is ahead), and **More > Sync now** runs a full sync (the higher authenticated revision wins; a download goes through the rollback guard). Only one sync runs at a time; saves that happen meanwhile queue one more push. If the account and the device hold different vaults that were never linked, nothing is copied and the user picks *Keep this device's vault* or *Use the cloud vault*. A download locks the open vault, because what was in memory is stale.
 
 The Firebase account (who may download the files) and the master password (who can decrypt them) are separate. Anyone who can download the two files can try passwords offline, so Argon2id cost and password strength are what protect the vault if the Firebase account is compromised.
 
+## Setting up Firebase
+
+1. Create a project in the Firebase console. Under **Authentication > Sign-in method** enable **Email/Password**.
+2. Under **Storage**, create the default bucket.
+3. Deploy the rules: `firebase deploy --only storage` (they are in `firebase/storage.rules`; `firebase/firebase.json` points at them).
+4. Put the project's **Web API key** (Project settings) and the **bucket name** (Storage > Files, for example `my-project.firebasestorage.app`) into `android/app/src/main/res/values/firebase.xml`. The Web API key identifies the project and is not a secret; the rules and the account decide who can read what.
+5. Build. While either value still starts with `YOUR_`, the app shows "Cloud sync isn't set up" and stays offline.
+6. In the app: **More > Cloud sync > Sign in or create account.** Use a Silk key file (create one on the unlock screen) so the sign-in is saved and the next start signs in by itself.
+
 ## Known limits (by design, for now)
 
-- **Rollback:** the revision is authenticated, and the device keeps the highest one it has seen (`seen.rev`). Unlock and biometric unlock refuse a vault file with a lower revision (`Error::Rollback`); every save raises the mark. Today this guards the local copy. When the Firebase transport lands, the downloaded file must go through the same check before it replaces the local one. The mark is a plain file: someone who can write the app's private folder can also replace the vault, so this is aimed at a malicious server, not at an attacker with device access.
+- **Rollback:** the revision is authenticated, and the device keeps the highest one it has seen (`seen.rev`). Unlock and biometric unlock refuse a vault file with a lower revision (`Error::Rollback`); every save raises the mark. A file downloaded from Firebase goes through the same check before it replaces the local one. The mark is a plain file: someone who can write the app's private folder can also replace the vault, so this is aimed at a malicious server, not at an attacker with device access.
 - **No VEK rotation.** Changing the password re-wraps the same VEK. Rotating it needs the key slot and the vault file to change together, which two separate uploads can't do atomically.
-- **No merge.** Two devices saving from the same revision: last write wins.
+- **No merge.** Two devices saving from the same revision: sync reports a conflict and copies nothing; the next save on either device gets the next revision and then wins.
 - **Upload order** is key slot first, then vault file, so a half-finished first-time setup leaves a slot without a vault file (accepted as an empty vault), never a vault file nobody can open.
-- **The app is local-only for now:** it uses `CloudVault` over the local store and has no network permission until the Firebase transport lands.
+- **Cloud sync is optional.** Without Firebase project values in `res/values/firebase.xml` the app stays fully offline (it still declares `INTERNET`, but `Net.java` only accepts HTTPS to three Firebase hosts and nothing else).
+- **The sign-in in the key file is not encrypted yet** (see "The key file").
 - **Real vaults are now written in the interim format** (`vault.interim`, magic `SKIM`). When `.skln` arrives, `interim.rs` cannot simply be deleted: it has to stay as a read-only source so existing vaults can be converted to `.skln` on unlock (the two have different file names, so telling them apart is easy). The same goes for the backup bundle, which embeds whichever vault file is current.
 
 ## The PassVault to Silk rename
@@ -141,9 +171,11 @@ Left on purpose:
 | 6 | **Kiln repo (yours):** add `.skln` with the contract above | todo |
 | 7 | Add a Kiln-backed `Archiver`, switch `archive::Current`, convert interim vaults to `.skln` on unlock (keep `interim.rs` as the reader); move Silk's CI toolchain if needed | todo, after 6 |
 | 8 | Session uses `CloudVault`: local copy of key slot + vault file in private storage (offline unlock), migrate `vault.pvlt` on first unlock (`local.rs`, `session.rs`, `backup.rs`) | done, untested on a device |
-| 9 | Firebase transport: Firebase Auth + Storage over HTTPS in the Java glue, `RemoteStore` bridge in Rust, `INTERNET` permission, project config | todo |
+| 9 | Firebase transport: Firebase Auth + Storage over HTTPS in the Java glue (`Net.java`), `RemoteStore` over an `Http` trait in Rust (`firebase.rs`), `INTERNET` permission, project config (`firebase.xml`) | done, untested on a device |
 | 10 | Biometric unlock wraps the VEK (`export_vek` / `unlock_with_vek`) instead of the old vault key | done (stale keys are detected and reset) |
-| 11 | Sync safety: rollback detection from the revision (done, local), conflict handling, VEK rotation with an atomic commit | partly: rollback guard done; conflicts and rotation todo |
-| 12 | UI: first-time setup vs unlock, sync status, change password, migration prompt | partly: setup/unlock and a migration notice exist; sync status and change password todo |
+| 11 | Sync safety: rollback detection from the revision, conflict handling (`sync.rs`: unrelated vaults and same-revision saves are never overwritten silently), VEK rotation with an atomic commit | partly: rollback guard and conflict handling done; rotation todo |
+| 12 | UI: first-time setup vs unlock, sync status, change password, migration prompt | partly: setup/unlock, a migration notice and the Cloud sync screens (sign in, sync status, Sync now, keep-or-use choice) exist; change password todo |
 | 13 | Browser extension reads key slot + vault file | done for the interim format and old `.pvlt`; `.skln` reader todo, after 6 |
 | 14 | The deeper PassVault to Silk rename (package, crates, library) | done, see above |
+| 15 | Silk key file (`SKEY`) and automatic saving of the cloud sign-in in it (`keyfile.rs`, `ui.rs`, `SilkActivity.saveKeyFile`) | done, untested on a device |
+| 16 | **Kiln repo (yours):** security update and encryption engine, then encrypt the `.key` file inside a `.skln` | todo, after the Kiln security update; Silk's side is a later update |

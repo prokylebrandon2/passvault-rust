@@ -48,7 +48,12 @@ impl KeySlot {
     }
 
     /// Wraps an existing VEK under new credentials, with a fresh salt and nonce.
-    pub fn wrap(vek: &[u8; 32], password: &str, key_file: Option<&[u8]>, kdf: Kdf) -> Result<KeySlot, Error> {
+    pub fn wrap(
+        vek: &[u8; 32],
+        password: &str,
+        key_file: Option<&[u8]>,
+        kdf: Kdf,
+    ) -> Result<KeySlot, Error> {
         if !kdf.is_sane() {
             return Err(Error::Corrupt);
         }
@@ -67,7 +72,13 @@ impl KeySlot {
         let aad = slot.header_bytes();
         let cipher = Aes256Gcm::new_from_slice(&kek[..]).map_err(|_| Error::Crypto)?;
         let ct = cipher
-            .encrypt(Nonce::from_slice(&nonce), Payload { msg: &vek[..], aad: &aad[..] })
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: &vek[..],
+                    aad: &aad[..],
+                },
+            )
             .map_err(|_| Error::Crypto)?;
         if ct.len() != WRAPPED_LEN {
             return Err(Error::Crypto);
@@ -77,7 +88,11 @@ impl KeySlot {
     }
 
     /// Subsequent unlock: derives the key with Argon2id and decrypts the VEK.
-    pub fn unwrap(&self, password: &str, key_file: Option<&[u8]>) -> Result<Zeroizing<[u8; 32]>, Error> {
+    pub fn unwrap(
+        &self,
+        password: &str,
+        key_file: Option<&[u8]>,
+    ) -> Result<Zeroizing<[u8; 32]>, Error> {
         if self.key_file && key_file.is_none() {
             return Err(Error::KeyFileRequired);
         }
@@ -88,7 +103,13 @@ impl KeySlot {
         let aad = self.header_bytes();
         let cipher = Aes256Gcm::new_from_slice(&kek[..]).map_err(|_| Error::Crypto)?;
         let plain = cipher
-            .decrypt(Nonce::from_slice(&self.nonce), Payload { msg: &self.wrapped[..], aad: &aad[..] })
+            .decrypt(
+                Nonce::from_slice(&self.nonce),
+                Payload {
+                    msg: &self.wrapped[..],
+                    aad: &aad[..],
+                },
+            )
             .map_err(|_| Error::WrongCredentials)?;
         let plain = Zeroizing::new(plain);
         if plain.len() != 32 {
@@ -146,7 +167,13 @@ impl KeySlot {
         salt.copy_from_slice(&b[15..31]);
         nonce.copy_from_slice(&b[31..43]);
         wrapped.copy_from_slice(&b[43..91]);
-        Ok(KeySlot { key_file: (b[5] & 1) == 1, kdf, salt, nonce, wrapped })
+        Ok(KeySlot {
+            key_file: (b[5] & 1) == 1,
+            kdf,
+            salt,
+            nonce,
+            wrapped,
+        })
     }
 }
 
@@ -154,7 +181,11 @@ impl KeySlot {
 mod tests {
     use super::*;
 
-    const FAST: Kdf = Kdf { t: 1, mem_kib: 64, p: 1 };
+    const FAST: Kdf = Kdf {
+        t: 1,
+        mem_kib: 64,
+        p: 1,
+    };
 
     #[test]
     fn create_then_unwrap_gives_the_same_vek() {
@@ -168,11 +199,23 @@ mod tests {
     fn wrong_password_and_key_file_mismatches_are_rejected() {
         let kf = [5u8; 64];
         let (slot, _) = KeySlot::create("password1", Some(&kf), FAST).unwrap();
-        assert_eq!(slot.unwrap("wrong", Some(&kf)).err(), Some(Error::WrongCredentials));
-        assert_eq!(slot.unwrap("password1", None).err(), Some(Error::KeyFileRequired));
-        assert_eq!(slot.unwrap("password1", Some(&[0u8; 64])).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            slot.unwrap("wrong", Some(&kf)).err(),
+            Some(Error::WrongCredentials)
+        );
+        assert_eq!(
+            slot.unwrap("password1", None).err(),
+            Some(Error::KeyFileRequired)
+        );
+        assert_eq!(
+            slot.unwrap("password1", Some(&[0u8; 64])).err(),
+            Some(Error::WrongCredentials)
+        );
         let (plain, _) = KeySlot::create("password1", None, FAST).unwrap();
-        assert_eq!(plain.unwrap("password1", Some(&kf)).err(), Some(Error::KeyFileNotUsed));
+        assert_eq!(
+            plain.unwrap("password1", Some(&kf)).err(),
+            Some(Error::KeyFileNotUsed)
+        );
     }
 
     #[test]
@@ -181,7 +224,10 @@ mod tests {
         let moved = KeySlot::wrap(&vek, "new password", None, FAST).unwrap();
         assert_ne!(slot.to_bytes(), moved.to_bytes());
         assert_eq!(&moved.unwrap("new password", None).unwrap()[..], &vek[..]);
-        assert_eq!(moved.unwrap("old password", None).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            moved.unwrap("old password", None).err(),
+            Some(Error::WrongCredentials)
+        );
     }
 
     #[test]
@@ -195,12 +241,24 @@ mod tests {
         // The header is authenticated: flipping a salt byte must not unwrap.
         let mut salt = bytes.clone();
         salt[20] ^= 1;
-        assert_eq!(KeySlot::from_bytes(&salt).unwrap().unwrap("password1", None).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            KeySlot::from_bytes(&salt)
+                .unwrap()
+                .unwrap("password1", None)
+                .err(),
+            Some(Error::WrongCredentials)
+        );
         // So is the wrapped key itself.
         let mut body = bytes.clone();
         let last = body.len() - 1;
         body[last] ^= 1;
-        assert_eq!(KeySlot::from_bytes(&body).unwrap().unwrap("password1", None).err(), Some(Error::WrongCredentials));
+        assert_eq!(
+            KeySlot::from_bytes(&body)
+                .unwrap()
+                .unwrap("password1", None)
+                .err(),
+            Some(Error::WrongCredentials)
+        );
     }
 
     #[test]
@@ -210,6 +268,19 @@ mod tests {
         let mut b = slot.to_bytes();
         b[10..14].copy_from_slice(&u32::MAX.to_be_bytes());
         assert_eq!(KeySlot::from_bytes(&b).err(), Some(Error::Corrupt));
-        assert_eq!(KeySlot::wrap(&[0u8; 32], "x", None, Kdf { t: 0, mem_kib: 64, p: 1 }).err(), Some(Error::Corrupt));
+        assert_eq!(
+            KeySlot::wrap(
+                &[0u8; 32],
+                "x",
+                None,
+                Kdf {
+                    t: 0,
+                    mem_kib: 64,
+                    p: 1
+                }
+            )
+            .err(),
+            Some(Error::Corrupt)
+        );
     }
 }

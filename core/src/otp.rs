@@ -79,7 +79,12 @@ pub fn parse(input: &str) -> Option<OtpParams> {
         return None;
     }
     if !s.to_ascii_lowercase().starts_with("otpauth://") {
-        return base32_decode(s).map(|secret| OtpParams { secret, digits: 6, period: 30, algo: Algo::Sha1 });
+        return base32_decode(s).map(|secret| OtpParams {
+            secret,
+            digits: 6,
+            period: 30,
+            algo: Algo::Sha1,
+        });
     }
     let query = s.split_once('?')?.1;
     let q: HashMap<String, String> = query
@@ -88,19 +93,37 @@ pub fn parse(input: &str) -> Option<OtpParams> {
         .map(|(k, v)| (pct_decode(k).to_ascii_lowercase(), pct_decode(v)))
         .collect();
     let secret = base32_decode(q.get("secret")?)?;
-    let algo = match q.get("algorithm").map(|a| a.to_ascii_uppercase()).as_deref() {
+    let algo = match q
+        .get("algorithm")
+        .map(|a| a.to_ascii_uppercase())
+        .as_deref()
+    {
         Some("SHA256") => Algo::Sha256,
         Some("SHA512") => Algo::Sha512,
         _ => Algo::Sha1,
     };
-    let digits = q.get("digits").and_then(|d| d.parse::<u32>().ok()).unwrap_or(6).clamp(6, 8);
-    let period = q.get("period").and_then(|p| p.parse::<u64>().ok()).unwrap_or(30).max(1);
-    Some(OtpParams { secret, digits, period, algo })
+    let digits = q
+        .get("digits")
+        .and_then(|d| d.parse::<u32>().ok())
+        .unwrap_or(6)
+        .clamp(6, 8);
+    let period = q
+        .get("period")
+        .and_then(|p| p.parse::<u64>().ok())
+        .unwrap_or(30)
+        .max(1);
+    Some(OtpParams {
+        secret,
+        digits,
+        period,
+        algo,
+    })
 }
 
 macro_rules! hmac_tag {
     ($digest:ty, $key:expr, $msg:expr) => {{
-        let mut m = <Hmac<$digest> as Mac>::new_from_slice($key).expect("HMAC accepts any key length");
+        let mut m =
+            <Hmac<$digest> as Mac>::new_from_slice($key).expect("HMAC accepts any key length");
         m.update($msg);
         m.finalize().into_bytes().to_vec()
     }};
@@ -133,7 +156,12 @@ mod tests {
     use super::*;
 
     fn rfc(secret: &[u8], algo: Algo) -> OtpParams {
-        OtpParams { secret: secret.to_vec(), digits: 8, period: 30, algo }
+        OtpParams {
+            secret: secret.to_vec(),
+            digits: 8,
+            period: 30,
+            algo,
+        }
     }
 
     #[test]
@@ -149,14 +177,22 @@ mod tests {
 
     #[test]
     fn sha256_and_sha512_match_rfc6238_vectors() {
-        assert_eq!(code(&rfc(b"12345678901234567890123456789012", Algo::Sha256), 59), "46119246");
+        assert_eq!(
+            code(&rfc(b"12345678901234567890123456789012", Algo::Sha256), 59),
+            "46119246"
+        );
         let key512 = b"1234567890123456789012345678901234567890123456789012345678901234";
         assert_eq!(code(&rfc(key512, Algo::Sha512), 59), "90693936");
     }
 
     #[test]
     fn six_digit_codes_are_the_tail_of_the_eight_digit_code() {
-        let p = OtpParams { secret: b"12345678901234567890".to_vec(), digits: 6, period: 30, algo: Algo::Sha1 };
+        let p = OtpParams {
+            secret: b"12345678901234567890".to_vec(),
+            digits: 6,
+            period: 30,
+            algo: Algo::Sha1,
+        };
         assert_eq!(code(&p, 59), "287082");
     }
 
@@ -164,7 +200,10 @@ mod tests {
     fn base32_decodes_with_padding_spaces_and_lowercase() {
         assert_eq!(base32_decode("JBSWY3DPEE======").unwrap(), b"Hello!");
         assert_eq!(base32_decode("jbsw y3dp-ee").unwrap(), b"Hello!");
-        assert_eq!(base32_decode("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ").unwrap(), b"12345678901234567890");
+        assert_eq!(
+            base32_decode("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ").unwrap(),
+            b"12345678901234567890"
+        );
         assert!(base32_decode("not base32 !!").is_none());
         assert!(base32_decode("").is_none());
     }

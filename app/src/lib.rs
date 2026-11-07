@@ -10,7 +10,9 @@ slint::include_modules!();
 #[no_mangle]
 fn android_main(app: slint::android::AndroidApp) {
     android_logger::init_once(
-        android_logger::Config::default().with_tag("silk").with_max_level(log::LevelFilter::Info),
+        android_logger::Config::default()
+            .with_tag("silk")
+            .with_max_level(log::LevelFilter::Info),
     );
     std::panic::set_hook(Box::new(|info| log::error!("panic: {info}")));
     let _ = slint::android::init(app.clone());

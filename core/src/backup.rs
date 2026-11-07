@@ -51,12 +51,20 @@ mod tests {
     use crate::archive::Member;
     use crate::vault::Kdf;
 
-    const FAST: Kdf = Kdf { t: 1, mem_kib: 64, p: 1 };
+    const FAST: Kdf = Kdf {
+        t: 1,
+        mem_kib: 64,
+        p: 1,
+    };
 
     fn parts() -> (Vec<u8>, Vec<u8>) {
         let (slot, vek) = KeySlot::create("password1", None, FAST).unwrap();
         let file = archive::current()
-            .seal(&vek, 1, &[Member::new("vault.json", b"{\"entries\":[]}".to_vec())])
+            .seal(
+                &vek,
+                1,
+                &[Member::new("vault.json", b"{\"entries\":[]}".to_vec())],
+            )
             .unwrap();
         (slot.to_bytes(), file)
     }
@@ -75,10 +83,16 @@ mod tests {
         assert!(!is_bundle(b"hello"));
         assert_eq!(unpack(b"hello").err(), Some(Error::NotAVault));
         assert_eq!(pack(b"short", &file).err(), Some(Error::NotAVault));
-        assert_eq!(pack(&slot, b"not a vault file at all").err(), Some(Error::NotAVault));
+        assert_eq!(
+            pack(&slot, b"not a vault file at all").err(),
+            Some(Error::NotAVault)
+        );
 
         let bundle = pack(&slot, &file).unwrap();
-        assert_eq!(unpack(&bundle[..HEADER_LEN + 10]).err(), Some(Error::NotAVault));
+        assert_eq!(
+            unpack(&bundle[..HEADER_LEN + 10]).err(),
+            Some(Error::NotAVault)
+        );
         let mut wrong_version = bundle.clone();
         wrong_version[4] = 9;
         assert_eq!(unpack(&wrong_version).err(), Some(Error::NotAVault));
